@@ -1,6 +1,6 @@
 {
   "name": "mdos",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "type": "module",
   "description": "Markdown Operating System - declarative UIs from markdown with CLI tools",
   "bin": {
@@ -12,7 +12,8 @@
     "gray-matter": "^4.0.3",
     "liquidjs": "^10.10.0",
     "marked": "^12.0.0",
-    "tailwindcss": "^4.1.18"
+    "tailwindcss": "^4.1.18",
+    "ws": "^8.18.3"
   },
   "scripts": {
     "start": "bun src/cli.js"

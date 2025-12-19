@@ -70,15 +70,36 @@ export function executeCommand(command, tools = {}, cwd = process.cwd(), env = p
 }
 
 /**
- * Execute widget data fetches
+ * Execute widget data fetches with optional caching
+ * @param {Object} widgets - Widget name to command mapping
+ * @param {Object} tools - Tool name to path mapping
+ * @param {string} cwd - Working directory
+ * @param {Object} env - Environment variables
+ * @param {Object} cache - Cache instance (optional)
+ * @param {Object} cacheTTLs - Widget name to TTL mapping (optional)
  */
-export async function executeWidgets(widgets, tools = {}, cwd = process.cwd(), env = process.env) {
+export async function executeWidgets(widgets, tools = {}, cwd = process.cwd(), env = process.env, cache = null, cacheTTLs = {}) {
   const results = {};
   
   for (const [name, command] of Object.entries(widgets)) {
+    // Check cache first if available
+    if (cache && cacheTTLs[name]) {
+      const cached = cache.get(name, cacheTTLs[name]);
+      if (cached !== null) {
+        results[name] = cached;
+        continue;
+      }
+    }
+    
     try {
       const result = await executeCommand(command, tools, cwd, env);
-      results[name] = result.success ? result.stdout : `Error: ${result.error}`;
+      const output = result.success ? result.stdout : `Error: ${result.error}`;
+      results[name] = output;
+      
+      // Cache result if cache available
+      if (cache && cacheTTLs[name]) {
+        cache.set(name, output);
+      }
     } catch (error) {
       results[name] = `Error: ${error.message}`;
     }

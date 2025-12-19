@@ -1,0 +1,9 @@
+{
+  "accounts": [
+    { "email": "you@work.com", "label": "Work" },
+    { "email": "you@company.com", "label": "Company" }
+  ],
+  "defaults": {
+    "limit": 20
+  }
+}

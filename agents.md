@@ -5,6 +5,12 @@
 ```bash
 bun install
 bun src/cli.js examples/email.md
+
+# Dev mode with hot reload
+bun src/cli.js dev examples/email.md
+
+# With specific config
+bun src/cli.js examples/email.md --config work-config.json
 ```
 
 ## One-Line Tests
@@ -83,9 +89,33 @@ bun src/cli.js examples/email.md
      - ./scripts/interactions.js
    ```
    Markdown stays readable, JS is reusable and maintainable
-2. **HTML Output** - Output HTML on single lines to prevent markdown parser treating indented HTML as code blocks
-3. **Pattern Actions** - Use wildcards for dynamic IDs: `[#archive-*]: !gmail archive $1`
-4. **Environment Variables** - Pass config via env vars (GMAIL_ACCOUNT, GMAIL_LIMIT)
-5. **Template Variables** - Access state at root level in Liquid templates: `{{ variable }}` not `{{ state.variable }}`
-6. **Event Propagation** - Use `event.stopPropagation()` on nested clickable elements
-7. **Port Management** - Default port is 3000, always kill stale servers before starting
+
+2. **Cache Configuration** - Add TTLs to avoid repeated CLI calls:
+   ```yaml
+   cache:
+     inbox: 30s
+     tasks: 1m
+     metrics: 5m
+   ```
+   Dramatically improves load times for data that doesn't change frequently
+
+3. **Dev Mode** - Use `mdos dev file.md` for development with hot reload
+
+4. **HTML Output** - Output HTML on single lines to prevent markdown parser treating indented HTML as code blocks
+
+5. **Pattern Actions** - Use wildcards for dynamic IDs: `[#archive-*]: !gmail archive $1`
+
+6. **Markdown Enhancements** - Use built-in syntax:
+   - `- [ ]` for checkboxes
+   - `(2h ago)` for inline metadata
+   - `[[page]]` for wiki links
+
+7. **Multi-Account** - Use separate config files for different accounts/profiles
+
+8. **Environment Variables** - Pass config via env vars (GMAIL_ACCOUNT, GMAIL_LIMIT)
+
+9. **Template Variables** - Access state at root level in Liquid templates: `{{ variable }}` not `{{ state.variable }}`
+
+10. **Event Propagation** - Use `event.stopPropagation()` on nested clickable elements
+
+11. **Port Management** - Default port is 3000, always kill stale servers before starting

@@ -7,9 +7,43 @@ Declarative UIs from markdown with CLI tools. Your markdown file is both the UI 
 ```bash
 npm install
 node src/cli.js examples/dashboard.md
+
+# Dev mode with hot reload
+node src/cli.js dev examples/dashboard.md
 ```
 
 Open http://localhost:3000
+
+## Features
+
+### Core
+- ✅ Frontmatter for tool/config declaration
+- ✅ Template variables with Liquid syntax
+- ✅ Widget data fetches (execute commands on load)
+- ✅ Clickable actions (execute commands on click)
+- ✅ State persistence (JSON file)
+- ✅ External scripts via frontmatter
+- ✅ Static file serving (scripts, styles, images)
+
+### Performance
+- ✅ **Cache TTL** - Avoid repeated CLI calls with configurable cache
+- ✅ **Lazy widget loading** - Conditional rendering (only load what's used)
+- ✅ **Preload on hover** - Prefetch next page when hovering links
+
+### Developer Experience
+- ✅ **Hot reload** - Auto-refresh browser in dev mode
+- ✅ **Better error messages** - See which CLI command failed and why
+- ✅ **Dev mode** - `mdos dev file.md` with verbose logging and WebSocket reload
+
+### Markdown Enhancements
+- ✅ **Auto-style lists** - Detect patterns and render as cards/checkboxes
+- ✅ **Checkboxes** - `- [ ]` incomplete, `- [x]` complete, `- [!]` important
+- ✅ **Inline metadata** - `(2h ago)` auto-styled as muted text
+- ✅ **Wiki links** - `[[page-name]]` or `[[page|Display]]` for multi-page
+
+### Multi-Account
+- ✅ **Config file support** - Switch between accounts/configs
+- ✅ **Multiple profiles** - `--config work.json` or `--config personal.json`
 
 ## How It Works
 
@@ -22,10 +56,14 @@ tools:
   tasks: ~/.local/bin/tasks-cli
   
 state: ./state.json
-refresh: 30  # auto-refresh in seconds
 
 scripts:
-  - ./scripts/interactions.js  # External JavaScript files
+  - ./scripts/interactions.js
+
+cache:
+  inbox: 30s        # Cache for 30 seconds
+  tasks: 1m         # Cache for 1 minute
+  metrics: 5m       # Cache for 5 minutes
 ---
 ```
 
@@ -48,7 +86,7 @@ You have **{{ email_count }}** unread emails
 [inbox_list]: !email inbox
 ```
 
-These execute on page load and populate template variables.
+These execute on page load and populate template variables. Results are cached based on frontmatter `cache` TTLs.
 
 ### 4. Action definitions run on click
 
@@ -87,23 +125,103 @@ function archiveEmail(id) {
 }
 ```
 
-Benefits:
-- Markdown stays readable
-- JavaScript is reusable
-- Easier to maintain and test
-- Can be minified/bundled separately
+## Performance: Caching
 
-## Styling with Tailwind CSS
+Add `cache` to frontmatter to avoid repeated CLI calls:
 
-The UI uses Tailwind CSS (via CDN). All standard markdown renders beautifully out of the box:
+```yaml
+cache:
+  inbox: 30s      # Seconds
+  tasks: 5m       # Minutes
+  metrics: 1h     # Hours
+  reports: 1d     # Days
+```
 
-- **Headings** - Sized appropriately with good spacing
-- **Code blocks** - Syntax highlighted with gray background
-- **Tables** - Bordered and styled
-- **Action links** - Blue buttons with hover effects
-- **Lists** - Properly spaced and indented
+Cached results are stored in `.cache.json` next to your state file. Cache is invalidated on write actions.
 
-The default theme is clean and modern. Everything is responsive.
+## Markdown Enhancements
+
+### Checkboxes
+
+```markdown
+- [ ] Incomplete task
+- [x] Completed task
+- [!] Important/urgent task
+```
+
+Auto-styled with colors and icons.
+
+### Lists with Actions
+
+```markdown
+- Email from Sarah (2h ago) [Archive](#archive-1) [Reply](#reply-1)
+```
+
+Renders as a card with inline metadata and action buttons.
+
+### Wiki Links
+
+```markdown
+[[inbox]]                  -> Links to ?page=inbox
+[[settings|My Settings]]   -> Links to ?page=settings with custom text
+```
+
+## Multi-Account Support
+
+Create multiple config files:
+
+**work-config.json:**
+```json
+{
+  "accounts": [
+    { "email": "you@work.com", "label": "Work" }
+  ],
+  "defaults": { "limit": 20 }
+}
+```
+
+**personal-config.json:**
+```json
+{
+  "accounts": [
+    { "email": "you@gmail.com", "label": "Personal" }
+  ],
+  "defaults": { "limit": 10 }
+}
+```
+
+Use with:
+```bash
+mdos email.md --config work-config.json
+mdos email.md --config personal-config.json
+```
+
+## CLI Usage
+
+```bash
+mdos <file.md> [options]
+mdos dev <file.md> [options]    # Dev mode with hot reload
+
+Options:
+  --port <number>      Port for web server (default: 3000)
+  --config <file>      Config file (default: config.json)
+  --help, -h           Show help
+
+Examples:
+  mdos dashboard.md
+  mdos dashboard.md --port 8080
+  mdos dev email.md --config work-config.json
+```
+
+## Dev Mode
+
+Enable hot reload and better error messages:
+
+```bash
+mdos dev dashboard.md
+```
+
+Changes to markdown file automatically reload the browser via WebSocket. No page refresh needed.
 
 ## Syntax Reference
 
@@ -137,6 +255,14 @@ Execute when user clicks a link:
 
 Link to it: `[Click Me](#action-name)`
 
+Pattern matching with wildcards:
+
+```markdown
+[#archive-*]: !gmail archive $1
+```
+
+Links like `[Archive](#archive-ABC123)` will execute `gmail archive ABC123`.
+
 ### State
 
 Loaded from JSON file specified in frontmatter:
@@ -148,16 +274,6 @@ state: ./state.json
 Access in templates: `{{ state.key }}`
 
 Actions automatically update `last_action` and `last_action_time`.
-
-### Tool Substitution
-
-Use `[toolname]` in commands to reference declared tools:
-
-```markdown
-[#check]: ![email] inbox
-```
-
-This runs the `email` tool from your tools declaration.
 
 ### External Scripts
 
@@ -171,42 +287,31 @@ scripts:
 
 Scripts are loaded at the end of the page. They have access to all rendered content and can call action endpoints via fetch.
 
-## Example Dashboard
+### Cache Configuration
 
-See `examples/dashboard.md` for a working example with mock CLI tools.
+Set TTLs for widget results:
 
-See `examples/email-clean.md` for an example with external scripts.
-
-## CLI Usage
-
-```bash
-mdos <file.md> [options]
-
-Options:
-  --port <number>    Port for web server (default: 3000)
-  --help, -h         Show help
+```yaml
+cache:
+  widget1: 30s    # 30 seconds
+  widget2: 5m     # 5 minutes
+  widget3: 1h     # 1 hour
+  widget4: 2d     # 2 days
 ```
 
-## Features
+## Example Dashboards
 
-- ✅ Frontmatter for tool/config declaration
-- ✅ Template variables with Liquid syntax
-- ✅ Widget data fetches (execute commands on load)
-- ✅ Clickable actions (execute commands on click)
-- ✅ State persistence (JSON file)
-- ✅ Auto-refresh (configurable interval)
-- ✅ File watching (changes reload on next request)
-- ✅ Clean UI with Tailwind CSS
-- ✅ Status notifications with animations
-- ✅ External scripts via frontmatter
-- ✅ Static file serving (scripts, styles, images)
+- `examples/dashboard.md` - Basic dashboard with mock CLI tools
+- `examples/dashboard-cached.md` - Dashboard with caching enabled
+- `examples/email-clean.md` - Email app with external scripts
+- `examples/enhanced.md` - Showcase of markdown enhancements
 
 ## Architecture
 
 ### Separation of Concerns
 
 **Markdown (`.md`)** - Structure and data
-- Frontmatter declares capabilities (tools, scripts, state)
+- Frontmatter declares capabilities (tools, scripts, state, cache)
 - Body defines layout and content
 - Widget/action definitions map to CLI commands
 
@@ -224,17 +329,15 @@ Options:
 
 This keeps each layer focused and testable.
 
-## Next Steps
+### Caching Strategy
 
-- [ ] Cache TTL in frontmatter
-- [ ] CSS file support via frontmatter
-- [ ] CLI tool for creating new dashboards
-- [ ] Input prompts for dynamic actions (e.g., task title)
-- [ ] Agent integration (autopilot mode)
-- [ ] Multiple dashboard pages (wiki links)
-- [ ] Authentication/secrets management
-- [ ] WebSocket for live updates
-- [ ] Terminal UI mode (alternative to web)
+1. Widget results are cached with configurable TTLs
+2. Cache is stored in `.cache.json` next to state file
+3. Cache is checked before executing CLI commands
+4. Write actions invalidate all cache
+5. Expired cache entries are ignored
+
+This dramatically improves load times for data that doesn't change frequently.
 
 ## Philosophy
 
@@ -245,6 +348,8 @@ This keeps each layer focused and testable.
 **State is explicit.** No hidden magic - state lives in a JSON file you can read and modify directly.
 
 **Separation of concerns.** Markdown for structure, JavaScript for interactions, CLI for logic. Each layer is independent and testable.
+
+**Cache aggressively.** Avoid redundant work. Most data doesn't need real-time updates.
 
 **Unix philosophy.** Small, focused tools that do one thing well, composed together through a declarative interface.
 
