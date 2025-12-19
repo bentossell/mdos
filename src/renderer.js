@@ -1,4 +1,10 @@
 import { marked } from 'marked';
+
+// Configure marked to allow HTML passthrough
+marked.setOptions({
+  breaks: true,
+  gfm: true
+});
 import express from 'express';
 import { watch } from 'chokidar';
 import { resolve, dirname } from 'path';
@@ -36,9 +42,9 @@ export async function startServer(mdPath, port = 3000) {
     // Merge state
     currentState = mergeWidgetResults(stateFromFile, widgetResults);
     
-    // Render template
+    // Render template - pass vars at root level AND under state for flexibility
     const cleanedBody = cleanBody(parsed.body);
-    const renderedBody = await renderTemplate(cleanedBody, { state: currentState });
+    const renderedBody = await renderTemplate(cleanedBody, { ...currentState, state: currentState });
     
     return {
       html: marked(renderedBody),
