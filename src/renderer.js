@@ -8,9 +8,19 @@ marked.setOptions({
 import express from 'express';
 import { watch } from 'chokidar';
 import { resolve, dirname } from 'path';
+import { readFileSync, existsSync } from 'fs';
 import { parseMarkdown, extractActions, extractActionLinks, renderTemplate, cleanBody } from './parser.js';
 import { loadState, saveState, mergeWidgetResults } from './state.js';
 import { executeWidgets, executeAction } from './executor.js';
+
+// Load config
+function loadConfig() {
+  const configPath = resolve(process.cwd(), 'config.json');
+  if (existsSync(configPath)) {
+    return JSON.parse(readFileSync(configPath, 'utf-8'));
+  }
+  return { accounts: [], defaults: { limit: 10 } };
+}
 
 /**
  * Start web server for markdown OS
@@ -21,13 +31,14 @@ export async function startServer(mdPath, port = 3000) {
   app.use(express.urlencoded({ extended: true }));
   
   const mdDir = dirname(resolve(mdPath));
+  const config = loadConfig();
   let currentState = {};
   let parsed = null;
   let actionsMap = {};
   let widgetsMap = {};
   
   // Parse and render the markdown
-  async function render() {
+  async function render(query = {}) {
     parsed = parseMarkdown(resolve(mdPath));
     const { actions, widgets } = extractActions(parsed.body);
     actionsMap = actions;
@@ -36,11 +47,26 @@ export async function startServer(mdPath, port = 3000) {
     // Load state
     const stateFromFile = parsed.statePath ? loadState(resolve(mdDir, parsed.statePath)) : {};
     
+    // Get default account from config
+    const defaultAccount = config.accounts[0]?.email || '';
+    const defaultLimit = config.defaults?.limit || 10;
+    
+    // Build environment from query params
+    const env = { ...process.env };
+    if (query.account) env.GMAIL_ACCOUNT = query.account;
+    else if (defaultAccount) env.GMAIL_ACCOUNT = defaultAccount;
+    if (query.limit) env.GMAIL_LIMIT = query.limit;
+    
     // Execute widgets to get data
-    const widgetResults = await executeWidgets(widgetsMap, parsed.tools, mdDir);
+    const widgetResults = await executeWidgets(widgetsMap, parsed.tools, mdDir, env);
     
     // Merge state
     currentState = mergeWidgetResults(stateFromFile, widgetResults);
+    
+    // Add config and query params to state for template access
+    currentState.accounts = config.accounts;
+    currentState.account = query.account || defaultAccount;
+    currentState.limit = query.limit || String(defaultLimit);
     
     // Render template - pass vars at root level AND under state for flexibility
     const cleanedBody = cleanBody(parsed.body);
@@ -56,7 +82,7 @@ export async function startServer(mdPath, port = 3000) {
   // Main page
   app.get('/', async (req, res) => {
     try {
-      const { html, actions, state } = await render();
+      const { html, actions, state } = await render(req.query);
       
       res.send(`
 <!DOCTYPE html>

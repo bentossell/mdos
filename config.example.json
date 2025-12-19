@@ -1,0 +1,9 @@
+{
+  "accounts": [
+    { "email": "you@gmail.com", "label": "Personal" },
+    { "email": "you@work.com", "label": "Work" }
+  ],
+  "defaults": {
+    "limit": 10
+  }
+}
