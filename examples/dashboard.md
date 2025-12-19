@@ -1,6 +1,6 @@
 ---
 tools:
-  email: ../cli-tools/email-cli
+  email: ../cli-tools/gmail-cli
   tasks: ../cli-tools/tasks-cli
   metrics: ../cli-tools/metrics-cli
 

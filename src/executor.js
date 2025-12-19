@@ -15,6 +15,13 @@ export function executeCommand(command, tools = {}, cwd = process.cwd()) {
       cmd = cmd.replace(pattern, toolPath);
     }
     
+    // Also replace bare tool names at start of command: toolname args -> /path/to/tool args
+    const cmdParts = cmd.split(/\s+/);
+    if (cmdParts.length > 0 && tools[cmdParts[0]]) {
+      cmdParts[0] = tools[cmdParts[0]];
+      cmd = cmdParts.join(' ');
+    }
+    
     // Split command into parts (simple split on spaces - could be improved)
     const parts = cmd.trim().split(/\s+/);
     const executable = parts[0];
@@ -82,9 +89,31 @@ export async function executeWidgets(widgets, tools = {}, cwd = process.cwd()) {
 
 /**
  * Execute an action and return result
+ * Supports pattern-based actions with wildcards:
+ *   [#archive-*]: !gmail archive $1  -> matches archive-ABC123, passes ABC123 as $1
  */
 export async function executeAction(actionName, actions, tools = {}, cwd = process.cwd()) {
-  const command = actions[actionName];
+  // First try exact match
+  let command = actions[actionName];
+  let params = [];
+  
+  // If no exact match, try pattern matching
+  if (!command) {
+    for (const [pattern, cmd] of Object.entries(actions)) {
+      // Convert pattern with * to regex
+      if (pattern.includes('*')) {
+        const regexStr = '^' + pattern.replace(/\*/g, '(.+)') + '$';
+        const regex = new RegExp(regexStr);
+        const match = actionName.match(regex);
+        
+        if (match) {
+          command = cmd;
+          params = match.slice(1); // captured groups
+          break;
+        }
+      }
+    }
+  }
   
   if (!command) {
     return {
@@ -93,8 +122,14 @@ export async function executeAction(actionName, actions, tools = {}, cwd = proce
     };
   }
   
+  // Replace $1, $2, etc. with captured params
+  let finalCommand = command;
+  params.forEach((param, index) => {
+    finalCommand = finalCommand.replace(new RegExp(`\\$${index + 1}`, 'g'), param);
+  });
+  
   try {
-    return await executeCommand(command, tools, cwd);
+    return await executeCommand(finalCommand, tools, cwd);
   } catch (error) {
     return {
       success: false,

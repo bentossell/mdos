@@ -1,0 +1,217 @@
+#!/bin/bash
+
+# Real Gmail CLI wrapper using gmcli
+ACCOUNT="${GMAIL_ACCOUNT:-ben.tossell@gmail.com}"
+
+case "$1" in
+  inbox)
+    # Get unread inbox threads as clickable table
+    echo "<table class=\"w-full text-sm\">"
+    echo "<thead><tr class=\"border-b\"><th class=\"text-left py-2\">From</th><th class=\"text-left py-2\">Subject</th><th class=\"text-left py-2\">Date</th><th class=\"py-2\">Actions</th></tr></thead>"
+    echo "<tbody>"
+    gmcli "$ACCOUNT" search "in:inbox" --max 15 2>/dev/null | tail -n +2 | while IFS=$'\t' read -r id date from subject labels; do
+      # Clean up from field
+      from_clean=$(echo "$from" | sed 's/<[^>]*>//g' | cut -c1-30)
+      subject_clean=$(echo "$subject" | cut -c1-50)
+      date_clean=$(echo "$date" | cut -d' ' -f1)
+      # Check if unread
+      unread_class=""
+      if echo "$labels" | grep -q "UNREAD"; then
+        unread_class="font-bold"
+      fi
+      echo "<tr class=\"border-b hover:bg-gray-50 $unread_class\">"
+      echo "  <td class=\"py-2\">$from_clean</td>"
+      echo "  <td class=\"py-2\"><a href=\"#view-$id\" class=\"text-blue-600 hover:underline\">$subject_clean</a></td>"
+      echo "  <td class=\"py-2 text-gray-500\">$date_clean</td>"
+      echo "  <td class=\"py-2 space-x-1\">"
+      echo "    <a href=\"#archive-$id\" class=\"text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200\">Archive</a>"
+      echo "    <a href=\"#star-$id\" class=\"text-xs px-2 py-1 bg-yellow-100 rounded hover:bg-yellow-200\">Star</a>"
+      echo "  </td>"
+      echo "</tr>"
+    done
+    echo "</tbody></table>"
+    ;;
+
+  inbox-simple)
+    # Simple markdown list for inbox
+    gmcli "$ACCOUNT" search "in:inbox is:unread" --max 10 2>/dev/null | \
+      tail -n +2 | head -10 | \
+      awk -F'\t' '{printf "- **%s** - %s\n", $3, $4}'
+    ;;
+    
+  count)
+    COUNT=$(gmcli "$ACCOUNT" search "in:inbox is:unread" --max 100 2>/dev/null | wc -l | tr -d ' ')
+    echo "$((COUNT > 0 ? COUNT - 1 : 0))"
+    ;;
+
+  count-starred)
+    COUNT=$(gmcli "$ACCOUNT" search "is:starred" --max 100 2>/dev/null | wc -l | tr -d ' ')
+    echo "$((COUNT > 0 ? COUNT - 1 : 0))"
+    ;;
+
+  starred)
+    echo "### Starred Emails"
+    gmcli "$ACCOUNT" search "is:starred" --max 10 2>/dev/null | tail -n +2 | \
+      awk -F'\t' '{printf "- ⭐ **%s** - %s\n", $3, $4}'
+    ;;
+
+  thread)
+    # View a specific thread
+    THREAD_ID="$2"
+    if [ -z "$THREAD_ID" ]; then
+      echo "Usage: gmail-cli thread <thread_id>"
+      exit 1
+    fi
+    echo "<div class=\"bg-white rounded-lg shadow p-4\">"
+    gmcli "$ACCOUNT" thread "$THREAD_ID" 2>/dev/null | while IFS= read -r line; do
+      if [[ "$line" =~ ^From: ]]; then
+        echo "<div class=\"font-semibold text-gray-900\">$line</div>"
+      elif [[ "$line" =~ ^Subject: ]]; then
+        echo "<div class=\"text-lg font-bold mb-2\">${line#Subject: }</div>"
+      elif [[ "$line" =~ ^Date: ]]; then
+        echo "<div class=\"text-sm text-gray-500 mb-4\">$line</div>"
+      elif [ -n "$line" ]; then
+        echo "<p class=\"mb-2\">$line</p>"
+      fi
+    done
+    echo "</div>"
+    echo "<div class=\"mt-4 space-x-2\">"
+    echo "  <a href=\"#reply-$THREAD_ID\" class=\"px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700\">Reply</a>"
+    echo "  <a href=\"#archive-$THREAD_ID\" class=\"px-4 py-2 bg-gray-200 rounded hover:bg-gray-300\">Archive</a>"
+    echo "  <a href=\"#star-$THREAD_ID\" class=\"px-4 py-2 bg-yellow-200 rounded hover:bg-yellow-300\">Star</a>"
+    echo "</div>"
+    ;;
+    
+  archive)
+    THREAD_ID="$2"
+    if [ -z "$THREAD_ID" ]; then
+      echo "Error: No thread ID provided"
+      exit 1
+    fi
+    gmcli "$ACCOUNT" labels "$THREAD_ID" --remove INBOX 2>/dev/null
+    echo "Archived thread"
+    ;;
+
+  star)
+    THREAD_ID="$2"
+    if [ -z "$THREAD_ID" ]; then
+      echo "Error: No thread ID provided"
+      exit 1
+    fi
+    gmcli "$ACCOUNT" labels "$THREAD_ID" --add STARRED 2>/dev/null
+    echo "Starred thread"
+    ;;
+
+  unstar)
+    THREAD_ID="$2"
+    if [ -z "$THREAD_ID" ]; then
+      echo "Error: No thread ID provided"
+      exit 1
+    fi
+    gmcli "$ACCOUNT" labels "$THREAD_ID" --remove STARRED 2>/dev/null
+    echo "Unstarred thread"
+    ;;
+
+  mark-read)
+    THREAD_ID="$2"
+    if [ -z "$THREAD_ID" ]; then
+      echo "Error: No thread ID provided"
+      exit 1
+    fi
+    gmcli "$ACCOUNT" labels "$THREAD_ID" --remove UNREAD 2>/dev/null
+    echo "Marked as read"
+    ;;
+    
+  mark-all-read)
+    THREADS=$(gmcli "$ACCOUNT" search "in:inbox is:unread" --max 20 2>/dev/null | tail -n +2 | awk -F'\t' '{print $1}' | tr '\n' ' ')
+    if [ -n "$THREADS" ]; then
+      gmcli "$ACCOUNT" labels $THREADS --remove UNREAD 2>/dev/null
+      echo "Marked all as read"
+    else
+      echo "No unread emails"
+    fi
+    ;;
+    
+  archive-old)
+    THREADS=$(gmcli "$ACCOUNT" search "in:inbox before:$(date -v-7d +%Y/%m/%d)" --max 20 2>/dev/null | tail -n +2 | awk -F'\t' '{print $1}' | tr '\n' ' ')
+    if [ -n "$THREADS" ]; then
+      gmcli "$ACCOUNT" labels $THREADS --remove INBOX 2>/dev/null
+      echo "Archived old emails"
+    else
+      echo "No old emails to archive"
+    fi
+    ;;
+
+  labels)
+    gmcli "$ACCOUNT" labels list 2>/dev/null
+    ;;
+
+  accounts)
+    echo "ben.tossell@gmail.com"
+    echo "ben@bensbites.com"
+    echo "ben@factory.ai"
+    ;;
+
+  search)
+    QUERY="$2"
+    if [ -z "$QUERY" ]; then
+      echo "Usage: gmail-cli search <query>"
+      exit 1
+    fi
+    gmcli "$ACCOUNT" search "$QUERY" --max 20 2>/dev/null | tail -n +2 | \
+      awk -F'\t' '{printf "- **%s** - %s (%s)\n", $3, $4, $2}'
+    ;;
+
+  send)
+    TO="$2"
+    SUBJECT="$3"
+    BODY="$4"
+    if [ -z "$TO" ] || [ -z "$SUBJECT" ] || [ -z "$BODY" ]; then
+      echo "Usage: gmail-cli send <to> <subject> <body>"
+      exit 1
+    fi
+    gmcli "$ACCOUNT" send --to "$TO" --subject "$SUBJECT" --body "$BODY" 2>/dev/null
+    echo "Email sent"
+    ;;
+
+  draft)
+    TO="$2"
+    SUBJECT="$3"
+    BODY="$4"
+    if [ -z "$TO" ] || [ -z "$SUBJECT" ] || [ -z "$BODY" ]; then
+      echo "Usage: gmail-cli draft <to> <subject> <body>"
+      exit 1
+    fi
+    gmcli "$ACCOUNT" drafts create --to "$TO" --subject "$SUBJECT" --body "$BODY" 2>/dev/null
+    echo "Draft created"
+    ;;
+    
+  *)
+    echo "Gmail CLI - wrapper for gmcli"
+    echo ""
+    echo "Usage: gmail-cli <command> [args]"
+    echo ""
+    echo "Commands:"
+    echo "  inbox          Show inbox as HTML table"
+    echo "  inbox-simple   Show inbox as markdown list"
+    echo "  count          Count unread emails"
+    echo "  count-starred  Count starred emails"
+    echo "  starred        Show starred emails"
+    echo "  thread <id>    View a specific thread"
+    echo "  archive <id>   Archive a thread"
+    echo "  star <id>      Star a thread"
+    echo "  unstar <id>    Remove star from thread"
+    echo "  mark-read <id> Mark thread as read"
+    echo "  mark-all-read  Mark all unread as read"
+    echo "  archive-old    Archive emails older than 7 days"
+    echo "  labels         List all labels"
+    echo "  accounts       List available accounts"
+    echo "  search <query> Search emails"
+    echo "  send <to> <subject> <body>  Send email"
+    echo "  draft <to> <subject> <body> Create draft"
+    echo ""
+    echo "Set GMAIL_ACCOUNT env var to change account"
+    echo "Current: $ACCOUNT"
+    exit 1
+    ;;
+esac

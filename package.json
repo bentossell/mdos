@@ -15,6 +15,6 @@
     "tailwindcss": "^4.1.18"
   },
   "scripts": {
-    "start": "node src/cli.js"
+    "start": "bun src/cli.js"
   }
 }

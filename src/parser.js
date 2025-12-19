@@ -23,22 +23,25 @@ export function parseMarkdown(filePath, state = {}) {
 /**
  * Extract action definitions from markdown
  * Formats:
- * [#action-name]: !command args
- * [widget-name]: !command args
+ * [#action-name]: !command args       - exact match action
+ * [#action-*]: !command $1            - pattern match action (wildcard)
+ * [widget-name]: !command args        - widget data fetch
  */
 export function extractActions(body) {
   const actions = {};
   const widgets = {};
   
-  // Match [#name]: !command or [name]: !command
-  const actionRegex = /^\[#?([^\]]+)\]:\s*!(.+)$/gm;
+  // Match [#name]: !command (action) or [name]: !command (widget)
+  const actionRegex = /^\[(#?)([^\]]+)\]:\s*!(.+)$/gm;
   let match;
   
   while ((match = actionRegex.exec(body)) !== null) {
-    const [, name, command] = match;
-    if (name.startsWith('#')) {
-      actions[name.slice(1)] = command.trim();
-    } else {
+    const [, hasHash, name, command] = match;
+    if (hasHash === '#') {
+      // Action definition
+      actions[name] = command.trim();
+    } else if (!name.includes('*')) {
+      // Widget data fetch (no wildcards)
       widgets[name] = command.trim();
     }
   }
