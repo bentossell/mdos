@@ -1,0 +1,34 @@
+#!/bin/bash
+
+# Mock tasks CLI tool for demo purposes
+
+case "$1" in
+  list)
+    cat << 'EOF'
+| ID | Title | Status |
+|----|-------|--------|
+| 1 | Fix authentication bug | In Progress |
+| 2 | Add user dashboard | Todo |
+| 3 | Write API docs | Todo |
+| 4 | Deploy to staging | Blocked |
+EOF
+    ;;
+    
+  count)
+    echo "4"
+    ;;
+    
+  create)
+    shift
+    echo "Created task: $*"
+    ;;
+    
+  complete)
+    echo "Task marked complete"
+    ;;
+    
+  *)
+    echo "Usage: tasks-cli {list|count|create|complete}"
+    exit 1
+    ;;
+esac

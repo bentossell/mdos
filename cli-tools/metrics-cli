@@ -1,0 +1,24 @@
+#!/bin/bash
+
+# Mock metrics CLI tool for demo purposes
+
+case "$1" in
+  summary)
+    cat << 'EOF'
+**System Health: Good**
+- Requests/min: 1,247
+- Error rate: 0.02%
+- Avg response: 145ms
+- Uptime: 99.98%
+EOF
+    ;;
+    
+  alerts)
+    echo "No active alerts"
+    ;;
+    
+  *)
+    echo "Usage: metrics-cli {summary|alerts}"
+    exit 1
+    ;;
+esac

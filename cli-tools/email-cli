@@ -1,0 +1,32 @@
+#!/bin/bash
+
+# Mock email CLI tool for demo purposes
+
+case "$1" in
+  inbox)
+    cat << 'EOF'
+- [Update from GitHub](https://github.com) - New PR opened
+- [Meeting reminder](https://calendar.com) - Team sync at 3pm
+- [Newsletter](https://news.com) - Weekly digest
+- [Invoice](https://stripe.com) - Payment received
+- [Alert](https://monitor.com) - Server CPU high
+EOF
+    ;;
+    
+  count)
+    echo "5"
+    ;;
+    
+  mark-all-read)
+    echo "Marked 5 emails as read"
+    ;;
+    
+  archive-old)
+    echo "Archived 12 old emails"
+    ;;
+    
+  *)
+    echo "Usage: email-cli {inbox|count|mark-all-read|archive-old}"
+    exit 1
+    ;;
+esac
