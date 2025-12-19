@@ -4,7 +4,7 @@ import { resolve } from 'path';
 /**
  * Execute a CLI command and return result
  */
-export function executeCommand(command, tools = {}, cwd = process.cwd()) {
+export function executeCommand(command, tools = {}, cwd = process.cwd(), env = process.env) {
   return new Promise((resolvePromise, reject) => {
     // Parse command - handle tool substitution
     let cmd = command;
@@ -33,7 +33,7 @@ export function executeCommand(command, tools = {}, cwd = process.cwd()) {
     const child = spawn(executable, args, {
       cwd,
       shell: true,
-      env: process.env
+      env
     });
     
     child.stdout.on('data', (data) => {
@@ -72,12 +72,12 @@ export function executeCommand(command, tools = {}, cwd = process.cwd()) {
 /**
  * Execute widget data fetches
  */
-export async function executeWidgets(widgets, tools = {}, cwd = process.cwd()) {
+export async function executeWidgets(widgets, tools = {}, cwd = process.cwd(), env = process.env) {
   const results = {};
   
   for (const [name, command] of Object.entries(widgets)) {
     try {
-      const result = await executeCommand(command, tools, cwd);
+      const result = await executeCommand(command, tools, cwd, env);
       results[name] = result.success ? result.stdout : `Error: ${result.error}`;
     } catch (error) {
       results[name] = `Error: ${error.message}`;

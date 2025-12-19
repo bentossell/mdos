@@ -1,217 +1,147 @@
 #!/bin/bash
 
-# Real Gmail CLI wrapper using gmcli
-ACCOUNT="${GMAIL_ACCOUNT:-ben.tossell@gmail.com}"
+# Gmail CLI wrapper using gmcli
+# Account must be set via GMAIL_ACCOUNT env var or config.json
+ACCOUNT="${GMAIL_ACCOUNT:-}"
+LIMIT="${GMAIL_LIMIT:-10}"
+
+if [ -z "$ACCOUNT" ]; then
+  echo "Error: No email account configured. Set GMAIL_ACCOUNT or add accounts to config.json"
+  exit 1
+fi
 
 case "$1" in
   inbox)
-    # Get unread inbox threads as clickable table
-    echo "<table class=\"w-full text-sm\">"
-    echo "<thead><tr class=\"border-b\"><th class=\"text-left py-2\">From</th><th class=\"text-left py-2\">Subject</th><th class=\"text-left py-2\">Date</th><th class=\"py-2\">Actions</th></tr></thead>"
-    echo "<tbody>"
-    gmcli "$ACCOUNT" search "in:inbox" --max 15 2>/dev/null | tail -n +2 | while IFS=$'\t' read -r id date from subject labels; do
-      # Clean up from field
-      from_clean=$(echo "$from" | sed 's/<[^>]*>//g' | cut -c1-30)
-      subject_clean=$(echo "$subject" | cut -c1-50)
-      date_clean=$(echo "$date" | cut -d' ' -f1)
+    # Get inbox threads as interactive list
+    MAX="${2:-$LIMIT}"
+    echo "<div class=\"space-y-1\">"
+    gmcli "$ACCOUNT" search "in:inbox" --max "$MAX" 2>/dev/null | tail -n +2 | grep -v "^#" | grep -v "^$" | while IFS=$'\t' read -r id date from subject labels; do
+      # Skip empty IDs or pagination lines
+      [ -z "$id" ] && continue
+      [[ "$id" == *"Next page"* ]] && continue
+      
+      # Clean and escape content
+      from_name=$(echo "$from" | sed 's/<[^>]*>//g' | sed 's/^ *//;s/ *$//' | sed 's/"/\&quot;/g' | cut -c1-25)
+      subject_clean=$(echo "$subject" | sed 's/"/\&quot;/g' | sed "s/'/\&#39;/g" | cut -c1-60)
+      date_short=$(echo "$date" | cut -d' ' -f1 | cut -c6-)  # MM-DD format
+      
       # Check if unread
-      unread_class=""
+      unread=""
+      unread_dot=""
       if echo "$labels" | grep -q "UNREAD"; then
-        unread_class="font-bold"
+        unread="font-semibold"
+        unread_dot="<span class=\"w-2 h-2 bg-blue-500 rounded-full inline-block mr-2\"></span>"
       fi
-      echo "<tr class=\"border-b hover:bg-gray-50 $unread_class\">"
-      echo "  <td class=\"py-2\">$from_clean</td>"
-      echo "  <td class=\"py-2\"><a href=\"#view-$id\" class=\"text-blue-600 hover:underline\">$subject_clean</a></td>"
-      echo "  <td class=\"py-2 text-gray-500\">$date_clean</td>"
-      echo "  <td class=\"py-2 space-x-1\">"
-      echo "    <a href=\"#archive-$id\" class=\"text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200\">Archive</a>"
-      echo "    <a href=\"#star-$id\" class=\"text-xs px-2 py-1 bg-yellow-100 rounded hover:bg-yellow-200\">Star</a>"
-      echo "  </td>"
-      echo "</tr>"
+      
+      # Output HTML on single line to preserve flexbox layout
+      echo "<div class=\"group flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 border-b border-gray-100 $unread\" data-thread-id=\"$id\"><input type=\"checkbox\" class=\"thread-select w-4 h-4 rounded\" data-id=\"$id\"><div class=\"flex-1 min-w-0 cursor-pointer\" onclick=\"viewThread('$id')\"><div class=\"flex items-center gap-2\">$unread_dot<span class=\"text-sm text-gray-900 truncate font-medium\" style=\"min-width:120px\">$from_name</span><span class=\"text-sm text-gray-500 truncate flex-1\">$subject_clean</span><span class=\"text-xs text-gray-400 whitespace-nowrap\">$date_short</span></div></div><div class=\"hidden group-hover:flex gap-1\"><button onclick=\"event.stopPropagation();archiveThread('$id')\" class=\"p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-200 rounded\" title=\"Archive\"><svg class=\"w-4 h-4\" fill=\"none\" stroke=\"currentColor\" viewBox=\"0 0 24 24\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4\"></path></svg></button><button onclick=\"event.stopPropagation();markRead('$id')\" class=\"p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-200 rounded\" title=\"Mark read\"><svg class=\"w-4 h-4\" fill=\"none\" stroke=\"currentColor\" viewBox=\"0 0 24 24\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M3 19v-8.93a2 2 0 01.89-1.664l7-4.666a2 2 0 012.22 0l7 4.666A2 2 0 0121 10.07V19M3 19a2 2 0 002 2h14a2 2 0 002-2M3 19l6.75-4.5M21 19l-6.75-4.5M3 10l6.75 4.5M21 10l-6.75 4.5m0 0l-1.14.76a2 2 0 01-2.22 0l-1.14-.76\"></path></svg></button></div></div>"
     done
-    echo "</tbody></table>"
+    echo "</div>"
     ;;
 
-  inbox-simple)
-    # Simple markdown list for inbox
-    gmcli "$ACCOUNT" search "in:inbox is:unread" --max 10 2>/dev/null | \
-      tail -n +2 | head -10 | \
-      awk -F'\t' '{printf "- **%s** - %s\n", $3, $4}'
-    ;;
+  thread)
+    THREAD_ID="$2"
+    if [ -z "$THREAD_ID" ]; then
+      echo "Error: No thread ID"
+      exit 1
+    fi
     
+    # Get thread content
+    CONTENT=$(gmcli "$ACCOUNT" thread "$THREAD_ID" 2>/dev/null)
+    
+    # Parse headers
+    FROM=$(echo "$CONTENT" | grep -m1 "^From:" | sed 's/From: //')
+    TO=$(echo "$CONTENT" | grep -m1 "^To:" | sed 's/To: //')
+    DATE=$(echo "$CONTENT" | grep -m1 "^Date:" | sed 's/Date: //')
+    SUBJECT=$(echo "$CONTENT" | grep -m1 "^Subject:" | sed 's/Subject: //')
+    
+    # Get body (everything after the headers)
+    BODY=$(echo "$CONTENT" | sed -n '/^$/,$p' | tail -n +2)
+    
+    # Output thread header
+    echo "<div class=\"max-w-3xl\"><div class=\"flex items-center justify-between mb-4\"><button onclick=\"closeThread()\" class=\"text-gray-500 hover:text-gray-700\"><svg class=\"w-5 h-5\" fill=\"none\" stroke=\"currentColor\" viewBox=\"0 0 24 24\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M10 19l-7-7m0 0l7-7m-7 7h18\"></path></svg></button><div class=\"flex gap-2\"><button onclick=\"archiveThread('$THREAD_ID'); closeThread();\" class=\"px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded\">Archive</button><button onclick=\"replyToThread('$THREAD_ID')\" class=\"px-3 py-1.5 text-sm bg-blue-500 text-white hover:bg-blue-600 rounded\">Reply</button></div></div>"
+    echo "<h1 class=\"text-xl font-semibold mb-4\">$SUBJECT</h1>"
+    echo "<div class=\"bg-gray-50 rounded-lg p-4 mb-4\"><div class=\"text-sm\"><span class=\"text-gray-500\">From:</span> $FROM</div><div class=\"text-sm\"><span class=\"text-gray-500\">To:</span> $TO</div><div class=\"text-sm\"><span class=\"text-gray-500\">Date:</span> $DATE</div></div>"
+    echo "<div class=\"prose prose-sm max-w-none\">"
+    echo "$BODY" | while IFS= read -r line; do
+      [ -n "$line" ] && echo "<p>$line</p>"
+    done
+    echo "</div></div>"
+    ;;
+
+  archive)
+    THREAD_ID="$2"
+    [ -z "$THREAD_ID" ] && { echo "Error: No thread ID"; exit 1; }
+    gmcli "$ACCOUNT" labels "$THREAD_ID" --remove INBOX 2>/dev/null
+    echo "Archived"
+    ;;
+
+  mark-read)
+    THREAD_ID="$2"
+    [ -z "$THREAD_ID" ] && { echo "Error: No thread ID"; exit 1; }
+    gmcli "$ACCOUNT" labels "$THREAD_ID" --remove UNREAD 2>/dev/null
+    echo "Marked as read"
+    ;;
+
+  archive-selected)
+    # Archive multiple threads (IDs passed as args)
+    shift
+    for id in "$@"; do
+      gmcli "$ACCOUNT" labels "$id" --remove INBOX 2>/dev/null
+    done
+    echo "Archived $# threads"
+    ;;
+
+  mark-read-selected)
+    shift
+    for id in "$@"; do
+      gmcli "$ACCOUNT" labels "$id" --remove UNREAD 2>/dev/null
+    done
+    echo "Marked $# as read"
+    ;;
+
+  reply)
+    THREAD_ID="$2"
+    BODY="$3"
+    [ -z "$THREAD_ID" ] || [ -z "$BODY" ] && { echo "Error: Need thread ID and body"; exit 1; }
+    
+    # Get original message details for reply
+    CONTENT=$(gmcli "$ACCOUNT" thread "$THREAD_ID" 2>/dev/null)
+    MSG_ID=$(echo "$CONTENT" | grep -m1 "^Message-ID:" | sed 's/Message-ID: //')
+    FROM=$(echo "$CONTENT" | grep -m1 "^From:" | sed 's/From: //' | grep -oE '[^<]+@[^>]+')
+    SUBJECT=$(echo "$CONTENT" | grep -m1 "^Subject:" | sed 's/Subject: //')
+    
+    # Add Re: if not present
+    [[ "$SUBJECT" != Re:* ]] && SUBJECT="Re: $SUBJECT"
+    
+    gmcli "$ACCOUNT" drafts create --to "$FROM" --subject "$SUBJECT" --body "$BODY" --reply-to "$MSG_ID" 2>/dev/null
+    echo "Draft reply created"
+    ;;
+
+  labels-list)
+    gmcli "$ACCOUNT" labels list 2>/dev/null | grep -v "^CATEGORY_" | grep -v "^CHAT$" | head -20
+    ;;
+
+  add-label)
+    THREAD_ID="$2"
+    LABEL="$3"
+    [ -z "$THREAD_ID" ] || [ -z "$LABEL" ] && { echo "Error: Need thread ID and label"; exit 1; }
+    gmcli "$ACCOUNT" labels "$THREAD_ID" --add "$LABEL" 2>/dev/null
+    echo "Added label: $LABEL"
+    ;;
+
   count)
     COUNT=$(gmcli "$ACCOUNT" search "in:inbox is:unread" --max 100 2>/dev/null | wc -l | tr -d ' ')
     echo "$((COUNT > 0 ? COUNT - 1 : 0))"
     ;;
 
-  count-starred)
-    COUNT=$(gmcli "$ACCOUNT" search "is:starred" --max 100 2>/dev/null | wc -l | tr -d ' ')
-    echo "$((COUNT > 0 ? COUNT - 1 : 0))"
-    ;;
-
-  starred)
-    echo "### Starred Emails"
-    gmcli "$ACCOUNT" search "is:starred" --max 10 2>/dev/null | tail -n +2 | \
-      awk -F'\t' '{printf "- ⭐ **%s** - %s\n", $3, $4}'
-    ;;
-
-  thread)
-    # View a specific thread
-    THREAD_ID="$2"
-    if [ -z "$THREAD_ID" ]; then
-      echo "Usage: gmail-cli thread <thread_id>"
-      exit 1
-    fi
-    echo "<div class=\"bg-white rounded-lg shadow p-4\">"
-    gmcli "$ACCOUNT" thread "$THREAD_ID" 2>/dev/null | while IFS= read -r line; do
-      if [[ "$line" =~ ^From: ]]; then
-        echo "<div class=\"font-semibold text-gray-900\">$line</div>"
-      elif [[ "$line" =~ ^Subject: ]]; then
-        echo "<div class=\"text-lg font-bold mb-2\">${line#Subject: }</div>"
-      elif [[ "$line" =~ ^Date: ]]; then
-        echo "<div class=\"text-sm text-gray-500 mb-4\">$line</div>"
-      elif [ -n "$line" ]; then
-        echo "<p class=\"mb-2\">$line</p>"
-      fi
-    done
-    echo "</div>"
-    echo "<div class=\"mt-4 space-x-2\">"
-    echo "  <a href=\"#reply-$THREAD_ID\" class=\"px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700\">Reply</a>"
-    echo "  <a href=\"#archive-$THREAD_ID\" class=\"px-4 py-2 bg-gray-200 rounded hover:bg-gray-300\">Archive</a>"
-    echo "  <a href=\"#star-$THREAD_ID\" class=\"px-4 py-2 bg-yellow-200 rounded hover:bg-yellow-300\">Star</a>"
-    echo "</div>"
-    ;;
-    
-  archive)
-    THREAD_ID="$2"
-    if [ -z "$THREAD_ID" ]; then
-      echo "Error: No thread ID provided"
-      exit 1
-    fi
-    gmcli "$ACCOUNT" labels "$THREAD_ID" --remove INBOX 2>/dev/null
-    echo "Archived thread"
-    ;;
-
-  star)
-    THREAD_ID="$2"
-    if [ -z "$THREAD_ID" ]; then
-      echo "Error: No thread ID provided"
-      exit 1
-    fi
-    gmcli "$ACCOUNT" labels "$THREAD_ID" --add STARRED 2>/dev/null
-    echo "Starred thread"
-    ;;
-
-  unstar)
-    THREAD_ID="$2"
-    if [ -z "$THREAD_ID" ]; then
-      echo "Error: No thread ID provided"
-      exit 1
-    fi
-    gmcli "$ACCOUNT" labels "$THREAD_ID" --remove STARRED 2>/dev/null
-    echo "Unstarred thread"
-    ;;
-
-  mark-read)
-    THREAD_ID="$2"
-    if [ -z "$THREAD_ID" ]; then
-      echo "Error: No thread ID provided"
-      exit 1
-    fi
-    gmcli "$ACCOUNT" labels "$THREAD_ID" --remove UNREAD 2>/dev/null
-    echo "Marked as read"
-    ;;
-    
-  mark-all-read)
-    THREADS=$(gmcli "$ACCOUNT" search "in:inbox is:unread" --max 20 2>/dev/null | tail -n +2 | awk -F'\t' '{print $1}' | tr '\n' ' ')
-    if [ -n "$THREADS" ]; then
-      gmcli "$ACCOUNT" labels $THREADS --remove UNREAD 2>/dev/null
-      echo "Marked all as read"
-    else
-      echo "No unread emails"
-    fi
-    ;;
-    
-  archive-old)
-    THREADS=$(gmcli "$ACCOUNT" search "in:inbox before:$(date -v-7d +%Y/%m/%d)" --max 20 2>/dev/null | tail -n +2 | awk -F'\t' '{print $1}' | tr '\n' ' ')
-    if [ -n "$THREADS" ]; then
-      gmcli "$ACCOUNT" labels $THREADS --remove INBOX 2>/dev/null
-      echo "Archived old emails"
-    else
-      echo "No old emails to archive"
-    fi
-    ;;
-
-  labels)
-    gmcli "$ACCOUNT" labels list 2>/dev/null
-    ;;
-
   accounts)
-    echo "ben.tossell@gmail.com"
-    echo "ben@bensbites.com"
-    echo "ben@factory.ai"
+    echo "Accounts are configured in config.json"
     ;;
 
-  search)
-    QUERY="$2"
-    if [ -z "$QUERY" ]; then
-      echo "Usage: gmail-cli search <query>"
-      exit 1
-    fi
-    gmcli "$ACCOUNT" search "$QUERY" --max 20 2>/dev/null | tail -n +2 | \
-      awk -F'\t' '{printf "- **%s** - %s (%s)\n", $3, $4, $2}'
-    ;;
-
-  send)
-    TO="$2"
-    SUBJECT="$3"
-    BODY="$4"
-    if [ -z "$TO" ] || [ -z "$SUBJECT" ] || [ -z "$BODY" ]; then
-      echo "Usage: gmail-cli send <to> <subject> <body>"
-      exit 1
-    fi
-    gmcli "$ACCOUNT" send --to "$TO" --subject "$SUBJECT" --body "$BODY" 2>/dev/null
-    echo "Email sent"
-    ;;
-
-  draft)
-    TO="$2"
-    SUBJECT="$3"
-    BODY="$4"
-    if [ -z "$TO" ] || [ -z "$SUBJECT" ] || [ -z "$BODY" ]; then
-      echo "Usage: gmail-cli draft <to> <subject> <body>"
-      exit 1
-    fi
-    gmcli "$ACCOUNT" drafts create --to "$TO" --subject "$SUBJECT" --body "$BODY" 2>/dev/null
-    echo "Draft created"
-    ;;
-    
   *)
-    echo "Gmail CLI - wrapper for gmcli"
-    echo ""
-    echo "Usage: gmail-cli <command> [args]"
-    echo ""
-    echo "Commands:"
-    echo "  inbox          Show inbox as HTML table"
-    echo "  inbox-simple   Show inbox as markdown list"
-    echo "  count          Count unread emails"
-    echo "  count-starred  Count starred emails"
-    echo "  starred        Show starred emails"
-    echo "  thread <id>    View a specific thread"
-    echo "  archive <id>   Archive a thread"
-    echo "  star <id>      Star a thread"
-    echo "  unstar <id>    Remove star from thread"
-    echo "  mark-read <id> Mark thread as read"
-    echo "  mark-all-read  Mark all unread as read"
-    echo "  archive-old    Archive emails older than 7 days"
-    echo "  labels         List all labels"
-    echo "  accounts       List available accounts"
-    echo "  search <query> Search emails"
-    echo "  send <to> <subject> <body>  Send email"
-    echo "  draft <to> <subject> <body> Create draft"
-    echo ""
-    echo "Set GMAIL_ACCOUNT env var to change account"
-    echo "Current: $ACCOUNT"
+    echo "Gmail CLI"
+    echo "Commands: inbox [limit], thread <id>, archive <id>, mark-read <id>, reply <id> <body>, add-label <id> <label>, count, accounts"
     exit 1
     ;;
 esac
