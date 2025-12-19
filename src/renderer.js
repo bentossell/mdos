@@ -30,6 +30,9 @@ export async function startServer(mdPath, port = 3000) {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
   
+  // Serve static files (scripts, styles, etc.) from markdown directory
+  app.use(express.static(mdDir));
+  
   const mdDir = dirname(resolve(mdPath));
   const config = loadConfig();
   let currentState = {};
@@ -224,6 +227,8 @@ export async function startServer(mdPath, port = 3000) {
     }, ${parsed.refresh * 1000});
     ` : ''}
   </script>
+  
+  ${(parsed.frontmatter.scripts || []).map(src => `<script src="${src}"></script>`).join('\n  ')}
 </body>
 </html>
       `);

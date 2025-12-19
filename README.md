@@ -23,6 +23,9 @@ tools:
   
 state: ./state.json
 refresh: 30  # auto-refresh in seconds
+
+scripts:
+  - ./scripts/interactions.js  # External JavaScript files
 ---
 ```
 
@@ -58,6 +61,37 @@ Click a link like `[Text](#mark-all-read)` to execute the command.
 ### 5. State persists between actions
 
 State is stored in JSON and available as `{{ state.key }}` in templates.
+
+### 6. External scripts for interactions
+
+Keep JavaScript separate from markdown for cleaner separation:
+
+**Markdown file:**
+```yaml
+---
+scripts:
+  - ./scripts/email-interactions.js
+---
+
+<div id="inbox">{{ inbox }}</div>
+```
+
+**JavaScript file:**
+```javascript
+// scripts/email-interactions.js
+function archiveEmail(id) {
+  fetch('/action', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'archive-' + id })
+  });
+}
+```
+
+Benefits:
+- Markdown stays readable
+- JavaScript is reusable
+- Easier to maintain and test
+- Can be minified/bundled separately
 
 ## Styling with Tailwind CSS
 
@@ -125,9 +159,23 @@ Use `[toolname]` in commands to reference declared tools:
 
 This runs the `email` tool from your tools declaration.
 
+### External Scripts
+
+Reference JavaScript files in frontmatter:
+
+```yaml
+scripts:
+  - ./scripts/interactions.js
+  - ./scripts/keyboard-shortcuts.js
+```
+
+Scripts are loaded at the end of the page. They have access to all rendered content and can call action endpoints via fetch.
+
 ## Example Dashboard
 
 See `examples/dashboard.md` for a working example with mock CLI tools.
+
+See `examples/email-clean.md` for an example with external scripts.
 
 ## CLI Usage
 
@@ -150,15 +198,40 @@ Options:
 - ✅ File watching (changes reload on next request)
 - ✅ Clean UI with Tailwind CSS
 - ✅ Status notifications with animations
+- ✅ External scripts via frontmatter
+- ✅ Static file serving (scripts, styles, images)
+
+## Architecture
+
+### Separation of Concerns
+
+**Markdown (`.md`)** - Structure and data
+- Frontmatter declares capabilities (tools, scripts, state)
+- Body defines layout and content
+- Widget/action definitions map to CLI commands
+
+**JavaScript (`.js`)** - Interactions and enhancements
+- Event handlers (click, keyboard, etc.)
+- AJAX calls to action endpoints
+- UI updates and animations
+- Progressive enhancement only
+
+**CLI Tools** - Business logic and data
+- Fetch data from APIs, databases, filesystems
+- Execute actions (send email, create issue, etc.)
+- Any language, any platform
+- Composable via Unix pipes
+
+This keeps each layer focused and testable.
 
 ## Next Steps
 
-- [ ] Custom Tailwind config in frontmatter
-- [ ] CSS file support for advanced theming
+- [ ] Cache TTL in frontmatter
+- [ ] CSS file support via frontmatter
 - [ ] CLI tool for creating new dashboards
 - [ ] Input prompts for dynamic actions (e.g., task title)
 - [ ] Agent integration (autopilot mode)
-- [ ] Multiple dashboard pages
+- [ ] Multiple dashboard pages (wiki links)
 - [ ] Authentication/secrets management
 - [ ] WebSocket for live updates
 - [ ] Terminal UI mode (alternative to web)
@@ -170,6 +243,8 @@ Options:
 **Markdown is the interface.** Both for humans (readable, editable) and agents (parseable, executable). The UI and capability manifest are one and the same.
 
 **State is explicit.** No hidden magic - state lives in a JSON file you can read and modify directly.
+
+**Separation of concerns.** Markdown for structure, JavaScript for interactions, CLI for logic. Each layer is independent and testable.
 
 **Unix philosophy.** Small, focused tools that do one thing well, composed together through a declarative interface.
 
