@@ -1,49 +1,78 @@
 #!/bin/bash
 
-# Gmail CLI wrapper using gmcli
-# Account must be set via GMAIL_ACCOUNT env var or config.json
+# Gmail CLI wrapper using gmcli with caching
 ACCOUNT="${GMAIL_ACCOUNT:-}"
 LIMIT="${GMAIL_LIMIT:-10}"
+CACHE_DIR="$HOME/.cache/mdos"
+CACHE_TTL=300  # 5 minutes
 
 if [ -z "$ACCOUNT" ]; then
   echo "Error: No email account configured. Set GMAIL_ACCOUNT or add accounts to config.json"
   exit 1
 fi
 
+mkdir -p "$CACHE_DIR"
+
+# Cache helper functions
+cache_file() {
+  echo "$CACHE_DIR/${ACCOUNT}_$1.cache"
+}
+
+cache_valid() {
+  local file="$1"
+  if [ ! -f "$file" ]; then
+    return 1
+  fi
+  local age=$(( $(date +%s) - $(stat -f %m "$file" 2>/dev/null || stat -c %Y "$file" 2>/dev/null) ))
+  [ "$age" -lt "$CACHE_TTL" ]
+}
+
 case "$1" in
   inbox)
-    # Get inbox threads as interactive list
+    # Get inbox threads as clean markdown (with caching)
     MAX="${2:-$LIMIT}"
-    echo "<div class=\"space-y-1\">"
-    gmcli "$ACCOUNT" search "in:inbox" --max "$MAX" 2>/dev/null | tail -n +2 | grep -v "^#" | grep -v "^$" | while IFS=$'\t' read -r id date from subject labels; do
-      # Skip empty IDs or pagination lines
-      [ -z "$id" ] && continue
-      [[ "$id" == *"Next page"* ]] && continue
-      
-      # Clean and escape content
-      from_name=$(echo "$from" | sed 's/<[^>]*>//g' | sed 's/^ *//;s/ *$//' | sed 's/"/\&quot;/g' | cut -c1-25)
-      subject_clean=$(echo "$subject" | sed 's/"/\&quot;/g' | sed "s/'/\&#39;/g" | cut -c1-60)
-      date_short=$(echo "$date" | cut -d' ' -f1 | cut -c6-)  # MM-DD format
-      
-      # Check if unread
-      unread=""
-      unread_dot=""
-      if echo "$labels" | grep -q "UNREAD"; then
-        unread="font-semibold"
-        unread_dot="<span class=\"w-2 h-2 bg-blue-500 rounded-full inline-block mr-2\"></span>"
-      fi
-      
-      # Output HTML on single line to preserve flexbox layout
-      echo "<div class=\"group flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 border-b border-gray-100 $unread\" data-thread-id=\"$id\"><input type=\"checkbox\" class=\"thread-select w-4 h-4 rounded\" data-id=\"$id\"><div class=\"flex-1 min-w-0 cursor-pointer\" onclick=\"viewThread('$id')\"><div class=\"flex items-center gap-2\">$unread_dot<span class=\"text-sm text-gray-900 truncate font-medium\" style=\"min-width:120px\">$from_name</span><span class=\"text-sm text-gray-500 truncate flex-1\">$subject_clean</span><span class=\"text-xs text-gray-400 whitespace-nowrap\">$date_short</span></div></div><div class=\"hidden group-hover:flex gap-1\"><button onclick=\"event.stopPropagation();archiveThread('$id')\" class=\"p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-200 rounded\" title=\"Archive\"><svg class=\"w-4 h-4\" fill=\"none\" stroke=\"currentColor\" viewBox=\"0 0 24 24\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4\"></path></svg></button><button onclick=\"event.stopPropagation();markRead('$id')\" class=\"p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-200 rounded\" title=\"Mark read\"><svg class=\"w-4 h-4\" fill=\"none\" stroke=\"currentColor\" viewBox=\"0 0 24 24\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M3 19v-8.93a2 2 0 01.89-1.664l7-4.666a2 2 0 012.22 0l7 4.666A2 2 0 0121 10.07V19M3 19a2 2 0 002 2h14a2 2 0 002-2M3 19l6.75-4.5M21 19l-6.75-4.5M3 10l6.75 4.5M21 10l-6.75 4.5m0 0l-1.14.76a2 2 0 01-2.22 0l-1.14-.76\"></path></svg></button></div></div>"
-    done
-    echo "</div>"
+    CACHE=$(cache_file "inbox_$MAX")
+    
+    # Check for --refresh flag
+    if [ "$2" = "--refresh" ] || [ "$3" = "--refresh" ]; then
+      rm -f "$CACHE"
+    fi
+    
+    # Return cached if valid
+    if cache_valid "$CACHE"; then
+      cat "$CACHE"
+      exit 0
+    fi
+    
+    # Fetch fresh and cache
+    {
+      gmcli "$ACCOUNT" search "in:inbox" --max "$MAX" 2>/dev/null | tail -n +2 | grep -v "^#" | grep -v "^$" | while IFS=$'\t' read -r id date from subject labels; do
+        [ -z "$id" ] && continue
+        [[ "$id" == *"Next page"* ]] && continue
+        
+        from_name=$(echo "$from" | sed 's/<[^>]*>//g' | sed 's/^ *//;s/ *$//' | cut -c1-25)
+        subject_clean=$(echo "$subject" | cut -c1-60)
+        date_short=$(echo "$date" | cut -d' ' -f1 | cut -c6-)
+        
+        if echo "$labels" | grep -q "UNREAD"; then
+          echo "● **[${from_name}](?view=${id})** · ${subject_clean}"
+        else
+          echo "[${from_name}](?view=${id}) · ${subject_clean}"
+        fi
+        echo ""
+        echo "*${date_short}* · [Archive](#archive-${id}) · [Mark read](#mark-read-${id})"
+        echo ""
+        echo "---"
+        echo ""
+      done
+    } | tee "$CACHE"
     ;;
 
   thread)
     THREAD_ID="$2"
     if [ -z "$THREAD_ID" ]; then
-      echo "Error: No thread ID"
-      exit 1
+      # No thread ID - output nothing (widget will be empty)
+      exit 0
     fi
     
     # Get thread content
@@ -58,21 +87,25 @@ case "$1" in
     # Get body (everything after the headers)
     BODY=$(echo "$CONTENT" | sed -n '/^$/,$p' | tail -n +2)
     
-    # Output thread header
-    echo "<div class=\"max-w-3xl\"><div class=\"flex items-center justify-between mb-4\"><button onclick=\"closeThread()\" class=\"text-gray-500 hover:text-gray-700\"><svg class=\"w-5 h-5\" fill=\"none\" stroke=\"currentColor\" viewBox=\"0 0 24 24\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M10 19l-7-7m0 0l7-7m-7 7h18\"></path></svg></button><div class=\"flex gap-2\"><button onclick=\"archiveThread('$THREAD_ID'); closeThread();\" class=\"px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded\">Archive</button><button onclick=\"replyToThread('$THREAD_ID')\" class=\"px-3 py-1.5 text-sm bg-blue-500 text-white hover:bg-blue-600 rounded\">Reply</button></div></div>"
-    echo "<h1 class=\"text-xl font-semibold mb-4\">$SUBJECT</h1>"
-    echo "<div class=\"bg-gray-50 rounded-lg p-4 mb-4\"><div class=\"text-sm\"><span class=\"text-gray-500\">From:</span> $FROM</div><div class=\"text-sm\"><span class=\"text-gray-500\">To:</span> $TO</div><div class=\"text-sm\"><span class=\"text-gray-500\">Date:</span> $DATE</div></div>"
-    echo "<div class=\"prose prose-sm max-w-none\">"
-    echo "$BODY" | while IFS= read -r line; do
-      [ -n "$line" ] && echo "<p>$line</p>"
-    done
-    echo "</div></div>"
+    # Output markdown
+    echo "[← Back](/) | [Archive](#archive-${THREAD_ID}) | [Reply](#reply-${THREAD_ID})"
+    echo ""
+    echo "## ${SUBJECT}"
+    echo ""
+    echo "**From:** ${FROM}  "
+    echo "**To:** ${TO}  "
+    echo "**Date:** ${DATE}"
+    echo ""
+    echo "---"
+    echo ""
+    echo "$BODY"
     ;;
 
   archive)
     THREAD_ID="$2"
     [ -z "$THREAD_ID" ] && { echo "Error: No thread ID"; exit 1; }
     gmcli "$ACCOUNT" labels "$THREAD_ID" --remove INBOX 2>/dev/null
+    rm -f "$CACHE_DIR/${ACCOUNT}"_*.cache  # Invalidate cache
     echo "Archived"
     ;;
 
@@ -80,6 +113,7 @@ case "$1" in
     THREAD_ID="$2"
     [ -z "$THREAD_ID" ] && { echo "Error: No thread ID"; exit 1; }
     gmcli "$ACCOUNT" labels "$THREAD_ID" --remove UNREAD 2>/dev/null
+    rm -f "$CACHE_DIR/${ACCOUNT}"_*.cache  # Invalidate cache
     echo "Marked as read"
     ;;
 
@@ -131,8 +165,19 @@ case "$1" in
     ;;
 
   count)
+    CACHE=$(cache_file "count")
+    if cache_valid "$CACHE"; then
+      cat "$CACHE"
+      exit 0
+    fi
     COUNT=$(gmcli "$ACCOUNT" search "in:inbox is:unread" --max 100 2>/dev/null | wc -l | tr -d ' ')
-    echo "$((COUNT > 0 ? COUNT - 1 : 0))"
+    echo "$((COUNT > 0 ? COUNT - 1 : 0))" | tee "$CACHE"
+    ;;
+
+  refresh)
+    # Clear all caches for this account
+    rm -f "$CACHE_DIR/${ACCOUNT}"_*.cache
+    echo "Cache cleared"
     ;;
 
   accounts)

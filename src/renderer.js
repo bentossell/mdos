@@ -42,7 +42,6 @@ export async function startServer(mdPath, port = 3000) {
     parsed = parseMarkdown(resolve(mdPath));
     const { actions, widgets } = extractActions(parsed.body);
     actionsMap = actions;
-    widgetsMap = widgets;
     
     // Load state
     const stateFromFile = parsed.statePath ? loadState(resolve(mdDir, parsed.statePath)) : {};
@@ -51,6 +50,20 @@ export async function startServer(mdPath, port = 3000) {
     const defaultAccount = config.accounts[0]?.email || '';
     const defaultLimit = config.defaults?.limit || 10;
     
+    // Build initial state with query params (needed for widget command rendering)
+    currentState = { ...stateFromFile };
+    currentState.accounts = config.accounts;
+    currentState.account = query.account || defaultAccount;
+    currentState.limit = query.limit || String(defaultLimit);
+    currentState.view = query.view || '';
+    
+    // Render widget commands through Liquid (so {{ view }} etc. get substituted)
+    const renderedWidgets = {};
+    for (const [name, command] of Object.entries(widgets)) {
+      renderedWidgets[name] = await renderTemplate(command, currentState);
+    }
+    widgetsMap = renderedWidgets;
+    
     // Build environment from query params
     const env = { ...process.env };
     if (query.account) env.GMAIL_ACCOUNT = query.account;
@@ -58,15 +71,10 @@ export async function startServer(mdPath, port = 3000) {
     if (query.limit) env.GMAIL_LIMIT = query.limit;
     
     // Execute widgets to get data
-    const widgetResults = await executeWidgets(widgetsMap, parsed.tools, mdDir, env);
+    const widgetResults = await executeWidgets(renderedWidgets, parsed.tools, mdDir, env);
     
-    // Merge state
-    currentState = mergeWidgetResults(stateFromFile, widgetResults);
-    
-    // Add config and query params to state for template access
-    currentState.accounts = config.accounts;
-    currentState.account = query.account || defaultAccount;
-    currentState.limit = query.limit || String(defaultLimit);
+    // Merge widget results into state
+    currentState = mergeWidgetResults(currentState, widgetResults);
     
     // Render template - pass vars at root level AND under state for flexibility
     const cleanedBody = cleanBody(parsed.body);
