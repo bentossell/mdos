@@ -59,6 +59,18 @@ Click a link like `[Text](#mark-all-read)` to execute the command.
 
 State is stored in JSON and available as `{{ state.key }}` in templates.
 
+## Styling with Tailwind CSS
+
+The UI uses Tailwind CSS (via CDN). All standard markdown renders beautifully out of the box:
+
+- **Headings** - Sized appropriately with good spacing
+- **Code blocks** - Syntax highlighted with gray background
+- **Tables** - Bordered and styled
+- **Action links** - Blue buttons with hover effects
+- **Lists** - Properly spaced and indented
+
+The default theme is clean and modern. Everything is responsive.
+
 ## Syntax Reference
 
 ### Tool Declarations
@@ -136,10 +148,13 @@ Options:
 - ✅ State persistence (JSON file)
 - ✅ Auto-refresh (configurable interval)
 - ✅ File watching (changes reload on next request)
-- ✅ Clean UI with status notifications
+- ✅ Clean UI with Tailwind CSS
+- ✅ Status notifications with animations
 
 ## Next Steps
 
+- [ ] Custom Tailwind config in frontmatter
+- [ ] CSS file support for advanced theming
 - [ ] CLI tool for creating new dashboards
 - [ ] Input prompts for dynamic actions (e.g., task title)
 - [ ] Agent integration (autopilot mode)
@@ -157,3 +172,5 @@ Options:
 **State is explicit.** No hidden magic - state lives in a JSON file you can read and modify directly.
 
 **Unix philosophy.** Small, focused tools that do one thing well, composed together through a declarative interface.
+
+**Design with Tailwind.** Modern, responsive UI out of the box. Extensible with custom themes.

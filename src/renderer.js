@@ -59,81 +59,72 @@ export async function startServer(mdPath, port = 3000) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Markdown OS</title>
+  <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      max-width: 900px;
-      margin: 40px auto;
-      padding: 0 20px;
-      line-height: 1.6;
-      color: #333;
+    /* Base markdown styles */
+    .markdown-body a[href^="#"] {
+      @apply inline-block px-3 py-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors text-sm font-medium no-underline mx-0.5 my-0.5;
     }
-    a[href^="#"] {
-      display: inline-block;
-      padding: 6px 12px;
-      background: #007bff;
-      color: white;
-      text-decoration: none;
-      border-radius: 4px;
-      margin: 2px;
-      font-size: 14px;
+    .markdown-body code {
+      @apply bg-gray-100 px-1.5 py-0.5 rounded text-sm;
     }
-    a[href^="#"]:hover {
-      background: #0056b3;
+    .markdown-body pre {
+      @apply bg-gray-100 p-4 rounded-lg overflow-x-auto;
     }
-    .status {
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      padding: 10px 15px;
-      background: #28a745;
-      color: white;
-      border-radius: 4px;
-      display: none;
+    .markdown-body pre code {
+      @apply bg-transparent p-0;
     }
-    .status.error {
-      background: #dc3545;
+    .markdown-body h1 {
+      @apply text-3xl font-bold mt-6 mb-4;
     }
-    .status.show {
-      display: block;
+    .markdown-body h2 {
+      @apply text-2xl font-bold mt-5 mb-3;
     }
-    code {
-      background: #f4f4f4;
-      padding: 2px 6px;
-      border-radius: 3px;
-      font-size: 90%;
+    .markdown-body h3 {
+      @apply text-xl font-semibold mt-4 mb-2;
     }
-    pre {
-      background: #f4f4f4;
-      padding: 15px;
-      border-radius: 5px;
-      overflow-x: auto;
+    .markdown-body p {
+      @apply mb-4;
     }
-    pre code {
-      background: none;
-      padding: 0;
+    .markdown-body ul, .markdown-body ol {
+      @apply mb-4 ml-6;
     }
-    h1, h2, h3 {
-      margin-top: 1.5em;
+    .markdown-body li {
+      @apply mb-1;
     }
-    .refresh-info {
-      color: #666;
-      font-size: 12px;
-      margin-bottom: 20px;
+    .markdown-body strong {
+      @apply font-semibold;
+    }
+    .markdown-body table {
+      @apply w-full border-collapse mb-4;
+    }
+    .markdown-body th {
+      @apply border border-gray-300 px-4 py-2 bg-gray-50 font-semibold text-left;
+    }
+    .markdown-body td {
+      @apply border border-gray-300 px-4 py-2;
+    }
+    .markdown-body blockquote {
+      @apply border-l-4 border-gray-300 pl-4 italic my-4;
+    }
+    .markdown-body hr {
+      @apply my-6 border-t border-gray-300;
     }
   </style>
 </head>
-<body>
-  <div class="refresh-info">
-    ${parsed.refresh ? `Auto-refresh: ${parsed.refresh}s` : ''}
-    <span id="last-update"></span>
+<body class="bg-gray-50 min-h-screen">
+  <div class="max-w-4xl mx-auto px-6 py-8">
+    <div class="text-gray-500 text-xs mb-6">
+      ${parsed.refresh ? `Auto-refresh: ${parsed.refresh}s` : ''}
+      <span id="last-update" class="ml-2"></span>
+    </div>
+    
+    <div id="content" class="markdown-body bg-white rounded-lg shadow-sm p-8">
+      ${html}
+    </div>
   </div>
   
-  <div id="content">
-    ${html}
-  </div>
-  
-  <div id="status" class="status"></div>
+  <div id="status" class="fixed top-5 right-5 px-4 py-2 rounded shadow-lg text-white font-medium hidden"></div>
   
   <script>
     const statusEl = document.getElementById('status');
@@ -141,9 +132,10 @@ export async function startServer(mdPath, port = 3000) {
     
     function showStatus(message, isError = false) {
       statusEl.textContent = message;
-      statusEl.className = 'status show' + (isError ? ' error' : '');
+      statusEl.className = 'fixed top-5 right-5 px-4 py-2 rounded shadow-lg text-white font-medium block ' + 
+        (isError ? 'bg-red-500' : 'bg-green-500');
       setTimeout(() => {
-        statusEl.className = 'status';
+        statusEl.className = 'fixed top-5 right-5 px-4 py-2 rounded shadow-lg text-white font-medium hidden';
       }, 3000);
     }
     
