@@ -67,6 +67,7 @@ bun src/cli.js examples/email.md
 - `src/state.js` - State persistence
 - `cli-tools/` - CLI wrappers (gmail-cli)
 - `examples/` - Example markdown apps
+- `examples/scripts/` - External JavaScript files for app interactions
 
 ## Git Preferences
 
@@ -76,9 +77,15 @@ bun src/cli.js examples/email.md
 
 ## Best Practices
 
-1. **HTML Output** - Output HTML on single lines to prevent markdown parser treating indented HTML as code blocks
-2. **Pattern Actions** - Use wildcards for dynamic IDs: `[#archive-*]: !gmail archive $1`
-3. **Environment Variables** - Pass config via env vars (GMAIL_ACCOUNT, GMAIL_LIMIT)
-4. **Template Variables** - Access state at root level in Liquid templates: `{{ variable }}` not `{{ state.variable }}`
-5. **Event Propagation** - Use `event.stopPropagation()` on nested clickable elements
-6. **Port Management** - Default port is 3000, always kill stale servers before starting
+1. **External Scripts** - Keep JavaScript in separate files, reference via frontmatter:
+   ```yaml
+   scripts:
+     - ./scripts/interactions.js
+   ```
+   Markdown stays readable, JS is reusable and maintainable
+2. **HTML Output** - Output HTML on single lines to prevent markdown parser treating indented HTML as code blocks
+3. **Pattern Actions** - Use wildcards for dynamic IDs: `[#archive-*]: !gmail archive $1`
+4. **Environment Variables** - Pass config via env vars (GMAIL_ACCOUNT, GMAIL_LIMIT)
+5. **Template Variables** - Access state at root level in Liquid templates: `{{ variable }}` not `{{ state.variable }}`
+6. **Event Propagation** - Use `event.stopPropagation()` on nested clickable elements
+7. **Port Management** - Default port is 3000, always kill stale servers before starting
