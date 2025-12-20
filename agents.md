@@ -81,6 +81,10 @@ bun src/cli.js examples/email.md
 - **Structured PR descriptions** - Use clear sections: What, Why, How
 - **Keep it concise** - Not overly verbose, get to the point
 
+## Testing Requirement
+
+**ALWAYS test with dev-browser skill before telling the user something is done.** Use screenshots to verify UI changes work correctly.
+
 ## Best Practices
 
 1. **External Scripts** - Keep JavaScript in separate files, reference via frontmatter:

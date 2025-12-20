@@ -4,7 +4,7 @@
 ACCOUNT="${GMAIL_ACCOUNT:-}"
 LIMIT="${GMAIL_LIMIT:-10}"
 CACHE_DIR="$HOME/.cache/mdos"
-CACHE_TTL=300  # 5 minutes
+CACHE_TTL=30  # 30 seconds for faster updates
 
 if [ -z "$ACCOUNT" ]; then
   echo "Error: No email account configured. Set GMAIL_ACCOUNT or add accounts to config.json"
@@ -29,23 +29,42 @@ cache_valid() {
 
 case "$1" in
   inbox)
-    # Get inbox threads as clean markdown (with caching)
-    MAX="${2:-$LIMIT}"
-    CACHE=$(cache_file "inbox_$MAX")
+    # Parse arguments
+    MAX="$LIMIT"
+    FORMAT="default"
+    SHOW_ACTIONS=true
+    REFRESH=false
     
-    # Check for --refresh flag
-    if [ "$2" = "--refresh" ] || [ "$3" = "--refresh" ]; then
-      rm -f "$CACHE"
+    shift # remove 'inbox'
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --format=*) FORMAT="${1#*=}" ;;
+        --no-actions) SHOW_ACTIONS=false ;;
+        --refresh) REFRESH=true ;;
+        [0-9]*) MAX="$1" ;;
+      esac
+      shift
+    done
+    
+    CACHE=$(cache_file "inbox_${MAX}_${FORMAT}_${SHOW_ACTIONS}")
+    
+    if [ "$REFRESH" = true ]; then
+      rm -f "$CACHE_DIR/${ACCOUNT}"_inbox_*.cache
     fi
     
-    # Return cached if valid
     if cache_valid "$CACHE"; then
       cat "$CACHE"
       exit 0
     fi
     
-    # Fetch fresh and cache
+    # Fetch and format
     {
+      # Table header
+      if [[ "$FORMAT" == *"table"* ]]; then
+        echo "| | From | Subject | Date |${SHOW_ACTIONS:+ Actions |}"
+        echo "|---|------|---------|------|${SHOW_ACTIONS:+--------|}"
+      fi
+      
       gmcli "$ACCOUNT" search "in:inbox" --max "$MAX" 2>/dev/null | tail -n +2 | grep -v "^#" | grep -v "^$" | while IFS=$'\t' read -r id date from subject labels; do
         [ -z "$id" ] && continue
         [[ "$id" == *"Next page"* ]] && continue
@@ -54,16 +73,62 @@ case "$1" in
         subject_clean=$(echo "$subject" | cut -c1-60)
         date_short=$(echo "$date" | cut -d' ' -f1 | cut -c6-)
         
-        if echo "$labels" | grep -q "UNREAD"; then
-          echo "● **[${from_name}](?view=${id})** · ${subject_clean}"
-        else
-          echo "[${from_name}](?view=${id}) · ${subject_clean}"
+        is_unread=false
+        echo "$labels" | grep -q "UNREAD" && is_unread=true
+        
+        # Build actions string
+        actions=""
+        if [ "$SHOW_ACTIONS" = true ]; then
+          actions="[Archive](#archive-${id}) · [Mark read](#mark-read-${id})"
         fi
-        echo ""
-        echo "*${date_short}* · [Archive](#archive-${id}) · [Mark read](#mark-read-${id})"
-        echo ""
-        echo "---"
-        echo ""
+        
+        # Format: terminal (HTML for keyboard navigation)
+        if [[ "$FORMAT" == *"terminal"* ]]; then
+          unread_class=""
+          unread_marker=""
+          [ "$is_unread" = true ] && unread_class=" unread" && unread_marker="<span class=\"unread\">●</span> "
+          echo "<div class=\"item${unread_class}\" data-thread-id=\"${id}\"><span class=\"checkbox\">[ ]</span>${unread_marker}<a href=\"?view=${id}\" class=\"from\">${from_name}</a><span class=\"subject\">${subject_clean}</span><span class=\"date\">${date_short}</span></div>"
+        
+        # Format: checklist
+        elif [[ "$FORMAT" == *"checklist"* ]]; then
+          checkbox="[ ]"
+          [ "$is_unread" = true ] && checkbox="[●]"
+          
+          if [[ "$FORMAT" == *"compact"* ]]; then
+            # checklist + compact
+            echo "- ${checkbox} [${from_name}](?view=${id}) · ${subject_clean} *${date_short}*${actions:+ · $actions}"
+          else
+            # checklist only
+            echo "- ${checkbox} **[${from_name}](?view=${id})** · ${subject_clean}"
+            echo "  *${date_short}*${actions:+ · $actions}"
+            echo ""
+          fi
+        
+        # Format: compact
+        elif [[ "$FORMAT" == *"compact"* ]]; then
+          marker=""
+          [ "$is_unread" = true ] && marker="● "
+          echo "${marker}[${from_name}](?view=${id}) · ${subject_clean} · *${date_short}*${actions:+ · $actions}"
+        
+        # Format: table
+        elif [[ "$FORMAT" == *"table"* ]]; then
+          marker=""
+          [ "$is_unread" = true ] && marker="●"
+          echo "| ${marker} | [${from_name}](?view=${id}) | ${subject_clean} | ${date_short} |${SHOW_ACTIONS:+ $actions |}"
+        
+        # Default format
+        else
+          if [ "$is_unread" = true ]; then
+            echo "● **[${from_name}](?view=${id})** · ${subject_clean}"
+          else
+            echo "[${from_name}](?view=${id}) · ${subject_clean}"
+          fi
+          echo ""
+          echo "*${date_short}*${actions:+ · $actions}"
+          echo ""
+          echo "---"
+          echo ""
+        fi
       done
     } | tee "$CACHE"
     ;;

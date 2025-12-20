@@ -266,6 +266,32 @@ export async function startServer(mdPath, port = 3000, options = {}) {
         `);
       }
       
+      // Raw mode - show raw markdown
+      if (req.query.raw === 'true') {
+        const rawContent = readFileSync(resolve(mdPath), 'utf-8');
+        return res.send(`
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Markdown OS</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-white min-h-screen">
+  <div class="max-w-4xl mx-auto px-6 py-8">
+    <div class="flex justify-end mb-4 gap-2">
+      <a href="/" class="text-sm text-blue-600 hover:underline">Rendered</a>
+      <span class="text-gray-300">|</span>
+      <a href="?edit=true" class="text-sm text-blue-600 hover:underline">Edit</a>
+    </div>
+    <pre class="font-mono text-sm whitespace-pre-wrap">${rawContent.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+  </div>
+</body>
+</html>
+        `);
+      }
+      
       const { html, actions, state, error } = await render(req.query);
       
       if (error) {
@@ -295,178 +321,631 @@ export async function startServer(mdPath, port = 3000, options = {}) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Markdown OS</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <title>mdos</title>
   <style>
-    /* Base markdown styles */
-    .markdown-body a[href^="#"] {
-      @apply inline-block px-3 py-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors text-sm font-medium no-underline mx-0.5 my-0.5;
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', monospace;
+      font-size: 14px;
+      line-height: 1.5;
+      background: #1a1b26;
+      color: #c0caf5;
+      min-height: 100vh;
+      padding: 16px;
     }
-    .markdown-body a[href^="?"]:not([href^="#"]) {
-      @apply text-blue-600 hover:text-blue-800 underline;
+    a { color: #7aa2f7; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .container { max-width: 900px; margin: 0 auto; }
+    
+    /* Terminal box */
+    .box {
+      border: 1px solid #414868;
+      margin-bottom: 8px;
     }
-    .markdown-body code {
-      @apply bg-gray-100 px-1.5 py-0.5 rounded text-sm;
+    .box-header {
+      background: #24283b;
+      padding: 4px 12px;
+      border-bottom: 1px solid #414868;
+      color: #7aa2f7;
+      font-weight: bold;
     }
-    .markdown-body pre {
-      @apply bg-gray-100 p-4 rounded-lg overflow-x-auto;
-    }
-    .markdown-body pre code {
-      @apply bg-transparent p-0;
-    }
-    .markdown-body h1 {
-      @apply text-3xl font-bold mt-6 mb-4;
-    }
-    .markdown-body h2 {
-      @apply text-2xl font-bold mt-5 mb-3;
-    }
-    .markdown-body h3 {
-      @apply text-xl font-semibold mt-4 mb-2;
-    }
-    .markdown-body p {
-      @apply mb-4;
-    }
-    .markdown-body ul, .markdown-body ol {
-      @apply mb-4 ml-6;
-    }
-    .markdown-body li {
-      @apply mb-1;
-    }
-    .markdown-body strong {
-      @apply font-semibold;
-    }
-    .markdown-body table {
-      @apply w-full border-collapse mb-4;
-    }
-    .markdown-body th {
-      @apply border border-gray-300 px-4 py-2 bg-gray-50 font-semibold text-left;
-    }
-    .markdown-body td {
-      @apply border border-gray-300 px-4 py-2;
-    }
-    .markdown-body blockquote {
-      @apply border-l-4 border-gray-300 pl-4 italic my-4;
-    }
-    .markdown-body hr {
-      @apply my-6 border-t border-gray-300;
+    .box-content { padding: 8px 12px; }
+    .box-footer {
+      background: #24283b;
+      padding: 4px 12px;
+      border-top: 1px solid #414868;
+      color: #565f89;
+      font-size: 12px;
     }
     
-    /* Hover preload hint */
-    a[data-preload]:hover::after {
-      content: '⚡';
-      @apply ml-1 text-xs;
+    /* List items */
+    .item {
+      padding: 6px 0;
+      border-bottom: 1px solid #24283b;
+      cursor: pointer;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
     }
+    .item:last-child { border-bottom: none; }
+    .item:hover { background: #24283b; }
+    .item.selected { background: #364a82; }
+    .item.cursor { outline: 1px solid #7aa2f7; outline-offset: -1px; }
+    .item .checkbox { color: #565f89; }
+    .item .checkbox.checked { color: #9ece6a; }
+    .item .unread { color: #f7768e; }
+    .item .from { color: #c0caf5; font-weight: 500; min-width: 180px; }
+    .item .subject { color: #a9b1d6; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .item .date { color: #565f89; font-size: 12px; }
+    .item .actions { display: none; gap: 8px; margin-left: auto; }
+    .item:hover .actions, .item.cursor .actions { display: flex; }
+    .item .actions a { color: #565f89; font-size: 12px; }
+    .item .actions a:hover { color: #7aa2f7; }
+    
+    /* Markdown content */
+    .md h1 { font-size: 20px; font-weight: bold; margin-bottom: 12px; color: #c0caf5; }
+    .md h2 { font-size: 16px; font-weight: bold; margin: 16px 0 8px; color: #7aa2f7; }
+    .md h3 { font-size: 14px; font-weight: bold; margin: 12px 0 6px; color: #bb9af7; }
+    .md p { margin-bottom: 8px; }
+    .md ul, .md ol { margin-left: 20px; margin-bottom: 8px; }
+    .md li { margin-bottom: 2px; }
+    .md code { background: #24283b; padding: 2px 6px; border-radius: 3px; }
+    .md pre { background: #24283b; padding: 12px; margin: 8px 0; overflow-x: auto; border-radius: 4px; }
+    .md pre code { background: none; padding: 0; }
+    .md hr { border: none; border-top: 1px solid #414868; margin: 16px 0; }
+    .md strong { color: #c0caf5; font-weight: 600; }
+    .md em { color: #565f89; }
+    .md blockquote { border-left: 2px solid #414868; padding-left: 12px; color: #565f89; }
+    .md table { width: 100%; border-collapse: collapse; margin: 8px 0; }
+    .md th, .md td { padding: 6px 12px; border: 1px solid #414868; text-align: left; }
+    .md th { background: #24283b; color: #7aa2f7; }
+    
+    /* Chat panel - bottom mode (default) */
+    #chat-panel {
+      display: none;
+      background: #1a1b26;
+      border-top: 2px solid #7aa2f7;
+      z-index: 100;
+    }
+    #chat-panel.open { display: flex; flex-direction: column; }
+    #chat-panel.bottom {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+    }
+    #chat-panel.bottom #chat-output { max-height: 200px; }
+    
+    /* Chat panel - split mode */
+    #chat-panel.split {
+      position: fixed;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: 400px;
+      border-top: none;
+      border-left: 2px solid #7aa2f7;
+    }
+    #chat-panel.split #chat-output { flex: 1; max-height: none; }
+    body.chat-split .container { margin-right: 420px; }
+    
+    #chat-header {
+      padding: 8px 16px;
+      background: #24283b;
+      color: #7aa2f7;
+      font-weight: bold;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+    #chat-header .chat-controls { display: flex; gap: 8px; align-items: center; }
+    #chat-header .chat-controls button {
+      background: #414868;
+      border: none;
+      color: #c0caf5;
+      padding: 2px 8px;
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+      border-radius: 3px;
+    }
+    #chat-header .chat-controls button:hover { background: #565f89; }
+    #chat-header .chat-controls button.active { background: #7aa2f7; color: #1a1b26; }
+    #chat-output {
+      padding: 12px 16px;
+      max-height: 200px;
+      overflow-y: auto;
+      font-size: 13px;
+      white-space: pre-wrap;
+      color: #9aa5ce;
+    }
+    #chat-input-container {
+      padding: 8px 16px 16px;
+      display: flex;
+      gap: 8px;
+    }
+    #chat-input {
+      flex: 1;
+      background: #24283b;
+      border: 1px solid #414868;
+      color: #c0caf5;
+      padding: 8px 12px;
+      font-family: inherit;
+      font-size: 14px;
+      outline: none;
+    }
+    #chat-input:focus { border-color: #7aa2f7; }
+    #chat-send {
+      background: #7aa2f7;
+      color: #1a1b26;
+      border: none;
+      padding: 8px 16px;
+      font-family: inherit;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    #chat-send:hover { background: #89b4fa; }
+    
+    /* Status bar */
+    #status-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #24283b;
+      padding: 6px 16px;
+      font-size: 12px;
+      color: #565f89;
+      display: flex;
+      justify-content: space-between;
+      border-top: 1px solid #414868;
+    }
+    #status-bar.hidden { display: none; }
+    .key { 
+      background: #414868;
+      color: #c0caf5;
+      padding: 1px 6px;
+      border-radius: 3px;
+      margin-right: 4px;
+    }
+    
+    /* Thread view */
+    .thread-view { display: none; }
+    .thread-view.active { display: block; }
+    .thread-header {
+      padding: 12px;
+      background: #24283b;
+      border-bottom: 1px solid #414868;
+    }
+    .thread-from { color: #7aa2f7; font-weight: bold; }
+    .thread-subject { color: #c0caf5; margin-top: 4px; }
+    .thread-meta { color: #565f89; font-size: 12px; margin-top: 8px; }
+    .thread-body { padding: 16px; white-space: pre-wrap; }
+    .thread-actions { padding: 12px; border-top: 1px solid #414868; display: flex; gap: 16px; }
+    
+    /* Loading */
+    .loading { color: #565f89; }
   </style>
 </head>
-<body class="bg-gray-50 min-h-screen">
-  <div class="max-w-4xl mx-auto px-6 py-8">
-    <div class="text-gray-500 text-xs mb-6">
-      ${parsed.refresh ? `Auto-refresh: ${parsed.refresh}s` : ''}
-      <span id="last-update" class="ml-2"></span>
-      ${devMode ? '<span class="ml-2 px-2 py-1 bg-yellow-200 text-yellow-800 rounded text-xs">DEV MODE</span>' : ''}
-    </div>
-    
-    <div id="content" class="markdown-body bg-white rounded-lg shadow-sm p-8">
-      ${html}
+<body>
+  <div class="container">
+    <div id="main-view">
+      <div id="content" class="md">
+        ${html}
+      </div>
     </div>
   </div>
   
-  <div id="status" class="fixed top-5 right-5 px-4 py-2 rounded shadow-lg text-white font-medium hidden"></div>
+  <!-- Chat panel -->
+  <div id="chat-panel" class="bottom">
+    <div id="chat-header">
+      <span>Chat (droid exec)</span>
+      <div class="chat-controls">
+        <span id="chat-mode-label" style="color: #565f89; font-weight: normal; font-size: 12px">bottom</span>
+        <span style="color: #565f89; font-weight: normal; font-size: 12px">· ctrl+shift+t toggle · esc close</span>
+      </div>
+    </div>
+    <div id="chat-output"></div>
+    <div id="chat-input-container">
+      <input type="text" id="chat-input" placeholder="Ask the agent to help...">
+      <button id="chat-send">Send</button>
+    </div>
+  </div>
   
-  <a href="?edit=true" class="fixed bottom-5 right-5 px-3 py-2 bg-gray-800 text-gray-200 text-sm rounded-lg shadow-lg hover:bg-gray-700 transition-colors" title="Edit markdown">
-    <svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
-    Edit
-  </a>
+  <!-- Status bar -->
+  <div id="status-bar">
+    <div>
+      <span class="key">j</span><span class="key">k</span> move
+      <span class="key">space</span> select
+      <span class="key">enter</span> open
+      <span class="key">a</span> archive
+      <span class="key">r</span> refresh
+      <span class="key">c</span> chat
+      <span class="key">+</span> new chat
+    </div>
+    <div id="status-msg"></div>
+  </div>
   
   <script>
-    const statusEl = document.getElementById('status');
-    const lastUpdateEl = document.getElementById('last-update');
+    // State
+    let items = [];
+    let cursor = 0;
+    let selected = new Set();
+    let chatOpen = false;
+    let currentView = null;
     
-    function showStatus(message, isError = false) {
-      statusEl.textContent = message;
-      statusEl.className = 'fixed top-5 right-5 px-4 py-2 rounded shadow-lg text-white font-medium block ' + 
-        (isError ? 'bg-red-500' : 'bg-green-500');
-      setTimeout(() => {
-        statusEl.className = 'fixed top-5 right-5 px-4 py-2 rounded shadow-lg text-white font-medium hidden';
-      }, 3000);
+    // Find all selectable items
+    function initItems() {
+      items = Array.from(document.querySelectorAll('.item, [data-item]'));
+      items.forEach((el, i) => {
+        el.dataset.index = i;
+        el.addEventListener('click', () => {
+          cursor = i;
+          updateCursor();
+          openItem(el);
+        });
+      });
+      if (items.length > 0) updateCursor();
     }
     
-    function updateTimestamp() {
-      if (lastUpdateEl) {
-        lastUpdateEl.textContent = 'Last update: ' + new Date().toLocaleTimeString();
+    function updateCursor() {
+      items.forEach((el, i) => {
+        el.classList.toggle('cursor', i === cursor);
+      });
+      // Scroll into view
+      if (items[cursor]) {
+        items[cursor].scrollIntoView({ block: 'nearest' });
       }
     }
     
-    updateTimestamp();
+    function toggleSelect(index) {
+      const el = items[index];
+      if (!el) return;
+      const id = el.dataset.id || el.dataset.threadId;
+      if (selected.has(id)) {
+        selected.delete(id);
+        el.classList.remove('selected');
+        const checkbox = el.querySelector('.checkbox');
+        if (checkbox) checkbox.classList.remove('checked');
+        if (checkbox) checkbox.textContent = '[ ]';
+      } else {
+        selected.add(id);
+        el.classList.add('selected');
+        const checkbox = el.querySelector('.checkbox');
+        if (checkbox) checkbox.classList.add('checked');
+        if (checkbox) checkbox.textContent = '[x]';
+      }
+      updateStatusMsg();
+    }
     
-    // Handle action clicks
-    document.addEventListener('click', async (e) => {
-      if (e.target.tagName === 'A' && e.target.getAttribute('href')?.startsWith('#')) {
-        e.preventDefault();
-        const action = e.target.getAttribute('href').slice(1);
-        
-        if (!action) return;
-        
-        showStatus('Executing...');
-        
-        try {
-          const response = await fetch('/action', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action })
-          });
-          
-          const result = await response.json();
-          
-          if (result.success) {
-            showStatus('Done!');
-            // Reload page to show updated state
-            setTimeout(() => window.location.reload(), 500);
+    function updateStatusMsg() {
+      const msg = document.getElementById('status-msg');
+      if (selected.size > 0) {
+        msg.textContent = selected.size + ' selected';
+      } else {
+        msg.textContent = '';
+      }
+    }
+    
+    function openItem(el) {
+      const href = el.querySelector('a')?.getAttribute('href');
+      if (href && href.startsWith('?')) {
+        window.location.href = href;
+      }
+    }
+    
+    async function executeAction(action) {
+      showStatus('Executing...');
+      try {
+        const response = await fetch('/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action })
+        });
+        const result = await response.json();
+        if (result.success) {
+          showStatus('Done');
+          setTimeout(() => window.location.reload(), 300);
+        } else {
+          showStatus('Error: ' + result.error);
+        }
+      } catch (error) {
+        showStatus('Error: ' + error.message);
+      }
+    }
+    
+    async function archiveSelected() {
+      if (selected.size === 0 && items[cursor]) {
+        const id = items[cursor].dataset.threadId || items[cursor].dataset.id;
+        if (id) {
+          await executeAction('archive-' + id);
+        }
+      } else {
+        for (const id of selected) {
+          await executeAction('archive-' + id);
+        }
+      }
+    }
+    
+    function showStatus(msg) {
+      document.getElementById('status-msg').textContent = msg;
+    }
+    
+    // Chat functions
+    let chatMode = 'split'; // 'split' (default) or 'bottom'
+    
+    function openChat() {
+      chatOpen = true;
+      const panel = document.getElementById('chat-panel');
+      panel.classList.add('open');
+      setChatMode(chatMode); // Apply current mode (split default)
+      document.getElementById('chat-input').focus();
+    }
+    
+    function closeChat() {
+      chatOpen = false;
+      document.getElementById('chat-panel').classList.remove('open');
+      document.getElementById('status-bar').classList.remove('hidden');
+      document.body.classList.remove('chat-split');
+    }
+    
+    function setChatMode(mode) {
+      chatMode = mode;
+      const panel = document.getElementById('chat-panel');
+      panel.classList.remove('bottom', 'split');
+      panel.classList.add(mode);
+      document.getElementById('chat-mode-label').textContent = mode;
+      
+      if (mode === 'split') {
+        document.body.classList.add('chat-split');
+        document.getElementById('status-bar').classList.remove('hidden');
+      } else {
+        document.body.classList.remove('chat-split');
+        if (chatOpen) document.getElementById('status-bar').classList.add('hidden');
+      }
+    }
+    
+    function toggleChatMode() {
+      setChatMode(chatMode === 'bottom' ? 'split' : 'bottom');
+    }
+    
+    // Session management
+    let currentSessionId = localStorage.getItem('mdos-session-id') || null;
+    
+    function newSession() {
+      currentSessionId = null;
+      localStorage.removeItem('mdos-session-id');
+      document.getElementById('chat-output').textContent = '[New session]\\n';
+      document.getElementById('chat-input').focus();
+    }
+    
+    function loadSession(session) {
+      currentSessionId = session.id;
+      localStorage.setItem('mdos-session-id', session.id);
+      
+      const output = document.getElementById('chat-output');
+      output.textContent = '';
+      
+      // Render messages
+      if (session.messages) {
+        for (const msg of session.messages) {
+          if (msg.role === 'user') {
+            output.textContent += '> ' + msg.content + '\\n\\n';
           } else {
-            showStatus('Error: ' + result.error, true);
+            output.textContent += msg.content + '\\n\\n';
           }
-        } catch (error) {
-          showStatus('Error: ' + error.message, true);
         }
+      }
+      output.scrollTop = output.scrollHeight;
+      document.getElementById('chat-input').focus();
+    }
+    
+    async function showSessionHistory() {
+      openChat();
+      
+      try {
+        const response = await fetch('/chat/sessions');
+        const sessions = await response.json();
+        
+        if (!sessions.length) {
+          document.getElementById('chat-output').textContent = '[No previous sessions]\\n';
+          return;
+        }
+        
+        const output = document.getElementById('chat-output');
+        output.textContent = '[Session History] (click to load)\\n\\n';
+        
+        // Show recent sessions
+        sessions.slice(-10).reverse().forEach((s, i) => {
+          const date = new Date(s.lastUpdated || s.created).toLocaleString();
+          const preview = s.messages?.[0]?.content?.slice(0, 50) || 'Empty session';
+          const isCurrent = s.id === currentSessionId ? ' [current]' : '';
+          
+          const line = document.createElement('div');
+          line.className = 'session-item';
+          line.style.cssText = 'cursor: pointer; padding: 4px 0; border-bottom: 1px solid #333;';
+          line.textContent = (i + 1) + '. ' + date + isCurrent + '\\n   ' + preview + '...';
+          line.onclick = () => loadSession(s);
+          output.appendChild(line);
+        });
+      } catch (error) {
+        document.getElementById('chat-output').textContent = '[Error loading sessions]\\n';
+      }
+    }
+    
+    async function sendChat() {
+      const input = document.getElementById('chat-input');
+      const output = document.getElementById('chat-output');
+      const prompt = input.value.trim();
+      if (!prompt) return;
+      
+      // Build context - only include emails if explicitly selected or in detail view
+      const params = new URLSearchParams(window.location.search);
+      const viewId = params.get('view') || '';
+      const selectedIds = Array.from(selected);
+      
+      const context = {
+        selectedIds: selectedIds.length > 0 ? selectedIds : [],
+        viewId: viewId || null
+      };
+      
+      input.value = '';
+      output.textContent = '> ' + prompt + '\\n\\n';
+      
+      try {
+        const response = await fetch('/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            prompt, 
+            context,
+            sessionId: currentSessionId,
+            isNewSession: !currentSessionId
+          })
+        });
+        
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let shouldRefresh = false;
+        let fullText = '';
+        
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value);
+          fullText += chunk;
+          
+          // Parse signals from stream
+          const lines = chunk.split('\\n');
+          for (const line of lines) {
+            // Parse session ID
+            const sessionMatch = line.match(/\\[SESSION:(.+?)\\]/);
+            if (sessionMatch) {
+              currentSessionId = sessionMatch[1];
+              localStorage.setItem('mdos-session-id', currentSessionId);
+              continue;
+            }
+            
+            // Parse refresh signal
+            if (line.includes('[REFRESH]')) {
+              shouldRefresh = true;
+              continue;
+            }
+            
+            // Show non-signal lines
+            if (line.trim()) {
+              output.textContent += line + '\\n';
+            }
+          }
+          output.scrollTop = output.scrollHeight;
+        }
+        
+        // Auto-refresh after archive actions
+        if (shouldRefresh) {
+          setTimeout(() => window.location.reload(), 800);
+        }
+      } catch (error) {
+        output.textContent += '\\nError: ' + error.message;
+      }
+    }
+    
+    // Keyboard handler
+    document.addEventListener('keydown', (e) => {
+      // Ctrl+Shift+T toggles chat mode (works everywhere)
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'T' || e.key === 't')) {
+        e.preventDefault();
+        toggleChatMode();
+        return;
+      }
+      
+      // Ctrl+N: new session (works everywhere)
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'n' || e.key === 'N') && !e.shiftKey) {
+        e.preventDefault();
+        openChat();
+        newSession();
+        return;
+      }
+      
+      // Ctrl+H: show session history (works everywhere)
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'h' || e.key === 'H') && !e.shiftKey) {
+        e.preventDefault();
+        showSessionHistory();
+        return;
+      }
+      
+      // Ignore if typing in input
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        if (e.key === 'Escape') {
+          closeChat();
+          e.target.blur();
+        }
+        if (e.key === 'Enter' && chatOpen) {
+          sendChat();
+        }
+        return;
+      }
+      
+      switch (e.key) {
+        case 'j':
+          cursor = Math.min(cursor + 1, items.length - 1);
+          updateCursor();
+          break;
+        case 'k':
+          cursor = Math.max(cursor - 1, 0);
+          updateCursor();
+          break;
+        case ' ':
+          e.preventDefault();
+          toggleSelect(cursor);
+          break;
+        case 'Enter':
+          if (items[cursor]) openItem(items[cursor]);
+          break;
+        case 'a':
+          archiveSelected();
+          break;
+        case 'r':
+          window.location.reload();
+          break;
+        case 'c':
+          openChat();
+          break;
+        case '+':
+        case '=':
+          openChat();
+          newSession();
+          break;
+        case 'Escape':
+          if (chatOpen) {
+            closeChat();
+          } else {
+            // Go back
+            const params = new URLSearchParams(window.location.search);
+            if (params.has('view')) {
+              window.location.href = '/';
+            }
+          }
+          break;
       }
     });
     
-    // Preload on hover
-    document.addEventListener('mouseover', (e) => {
-      if (e.target.tagName === 'A' && e.target.getAttribute('href')?.startsWith('?')) {
-        const href = e.target.getAttribute('href');
-        if (!e.target.dataset.preloaded) {
-          const link = document.createElement('link');
-          link.rel = 'prefetch';
-          link.href = href;
-          document.head.appendChild(link);
-          e.target.dataset.preloaded = 'true';
-        }
+    // Init
+    initItems();
+    
+    // Handle action links
+    document.addEventListener('click', async (e) => {
+      const link = e.target.closest('a[href^="#"]');
+      if (link) {
+        e.preventDefault();
+        const action = link.getAttribute('href').slice(1);
+        if (action) await executeAction(action);
       }
     });
     
-    // Auto-refresh
-    ${parsed.refresh ? `
-    setInterval(() => {
-      window.location.reload();
-    }, ${parsed.refresh * 1000});
-    ` : ''}
-    
-    // WebSocket for hot reload
-    ${devMode ? `
-    const ws = new WebSocket('ws://' + location.host);
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      if (msg.type === 'reload') {
-        console.log('File changed, reloading...');
-        window.location.reload();
-      }
-    };
-    ws.onerror = () => console.log('WebSocket disconnected');
-    ` : ''}
+    // Chat send button
+    document.getElementById('chat-send').addEventListener('click', sendChat);
   </script>
-  
-  ${(parsed.frontmatter.scripts || []).map(src => `<script src="${src}"></script>`).join('\n  ')}
 </body>
 </html>
       `);
@@ -528,6 +1007,188 @@ export async function startServer(mdPath, port = 3000, options = {}) {
         success: false,
         error: error.message
       });
+    }
+  });
+  
+  // Session storage
+  const sessionsPath = resolve(mdDir, '.chat-sessions.json');
+  
+  function loadSessions() {
+    if (existsSync(sessionsPath)) {
+      return JSON.parse(readFileSync(sessionsPath, 'utf-8'));
+    }
+    return [];
+  }
+  
+  function saveSessions(sessions) {
+    writeFileSync(sessionsPath, JSON.stringify(sessions, null, 2));
+  }
+  
+  // Get sessions endpoint
+  app.get('/chat/sessions', (req, res) => {
+    res.json(loadSessions());
+  });
+  
+  // Chat endpoint - runs droid exec with haiku model
+  app.post('/chat', async (req, res) => {
+    const { prompt, context, sessionId, isNewSession } = req.body;
+    
+    // Build prompt - keep it simple
+    let fullPrompt = prompt;
+    
+    // Add email context only if explicitly selected or in detail view
+    if (context?.selectedIds?.length > 0) {
+      fullPrompt += `\n\n[Selected emails: ${context.selectedIds.join(', ')}]`;
+    } else if (context?.viewId) {
+      fullPrompt += `\n\n[Viewing email: ${context.viewId}]`;
+    }
+    
+    // Add tools info
+    fullPrompt += `\n\n[Available: cli-tools/gmail-cli - inbox, thread, archive, mark-read, star, reply]`;
+    
+    // Session management
+    let sessions = loadSessions();
+    let currentSessionId = sessionId || null;
+    
+    // Set headers for streaming
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.flushHeaders();
+    
+    try {
+      const { spawn } = await import('child_process');
+      
+      // Build args - use haiku for speed, stream-json for tool visibility
+      const args = [
+        'exec',
+        '--auto', 'medium',
+        '-m', 'claude-haiku-4-5-20251001',
+        '--output-format', 'stream-json'
+      ];
+      
+      // Resume existing session if we have one (and not creating new)
+      if (!isNewSession && sessionId) {
+        args.push('-s', sessionId);
+      }
+      
+      args.push(fullPrompt);
+      
+      const droid = spawn('droid', args, {
+        cwd: mdDir,
+        env: { ...process.env }
+      });
+      
+      let output = '';
+      let finalText = '';
+      let shouldRefresh = false;
+      
+      droid.stdout.on('data', (data) => {
+        const text = data.toString();
+        output += text;
+        
+        // Parse stream-json lines
+        const lines = text.split('\n').filter(l => l.trim());
+        for (const line of lines) {
+          try {
+            const event = JSON.parse(line);
+            
+            // Tool call - show clean status
+            if (event.type === 'tool_call') {
+              const toolName = event.toolName || '';
+              const params = event.parameters || {};
+              
+              // Check if this is an archive action
+              if (toolName === 'Execute' && params.command?.includes('archive')) {
+                shouldRefresh = true;
+                res.write('[Archiving...]\n');
+              } else if (toolName === 'Execute') {
+                res.write('[Executing...]\n');
+              } else if (toolName === 'Read') {
+                res.write('[Reading...]\n');
+              } else {
+                res.write(`[${toolName}...]\n`);
+              }
+            }
+            
+            // Tool result - minimal feedback
+            else if (event.type === 'tool_result') {
+              if (event.isError) {
+                res.write(`[Error: ${String(event.value).slice(0, 100)}]\n`);
+              } else {
+                res.write('[Done]\n');
+              }
+            }
+            
+            // Completion - show final text and get session_id
+            else if (event.type === 'completion') {
+              finalText = event.finalText || '';
+              res.write('\n' + finalText + '\n');
+              
+              // Capture the real session ID from droid
+              if (event.session_id) {
+                currentSessionId = event.session_id;
+              }
+              
+              // Send refresh signal if needed
+              if (shouldRefresh) {
+                res.write('\n[REFRESH]\n');
+              }
+            }
+            
+            // System init - capture session_id
+            else if (event.type === 'system' && event.session_id) {
+              currentSessionId = event.session_id;
+            }
+          } catch {
+            // Not valid JSON, ignore
+          }
+        }
+      });
+      
+      droid.stderr.on('data', (data) => {
+        res.write('[Error] ' + data.toString());
+      });
+      
+      droid.on('close', (code) => {
+        // Save session if we have an ID
+        if (currentSessionId) {
+          const existingIdx = sessions.findIndex(s => s.id === currentSessionId);
+          if (existingIdx >= 0) {
+            sessions[existingIdx].messages = sessions[existingIdx].messages || [];
+            sessions[existingIdx].messages.push({ role: 'user', content: prompt });
+            sessions[existingIdx].messages.push({ role: 'assistant', content: finalText });
+            sessions[existingIdx].lastUpdated = new Date().toISOString();
+          } else {
+            sessions.push({
+              id: currentSessionId,
+              created: new Date().toISOString(),
+              lastUpdated: new Date().toISOString(),
+              messages: [
+                { role: 'user', content: prompt },
+                { role: 'assistant', content: finalText }
+              ]
+            });
+          }
+          
+          // Keep last 20 sessions
+          if (sessions.length > 20) sessions = sessions.slice(-20);
+          saveSessions(sessions);
+          
+          // Send session ID to client for storage
+          res.write(`\n[SESSION:${currentSessionId}]\n`);
+        }
+        
+        if (cache) cache.invalidateAll();
+        res.end();
+      });
+      
+      droid.on('error', (error) => {
+        res.write(`Error: ${error.message}`);
+        res.end();
+      });
+    } catch (error) {
+      res.write(`Error: ${error.message}`);
+      res.end();
     }
   });
   

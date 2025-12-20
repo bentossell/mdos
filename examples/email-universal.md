@@ -18,7 +18,7 @@ cache:
 
 *Run with:* `bun mdos examples/email-universal.md`
 
-[inbox]: !gmail inbox
+[inbox]: !gmail inbox --format=checklist
 [email_count]: !gmail count
 [thread]: !gmail thread {{ view }}
 
