@@ -75,30 +75,40 @@ case "$1" in
       exit 0
     fi
     
-    # Get thread content
-    CONTENT=$(gmcli "$ACCOUNT" thread "$THREAD_ID" 2>/dev/null)
+    CACHE=$(cache_file "thread_${THREAD_ID}")
     
-    # Parse headers
-    FROM=$(echo "$CONTENT" | grep -m1 "^From:" | sed 's/From: //')
-    TO=$(echo "$CONTENT" | grep -m1 "^To:" | sed 's/To: //')
-    DATE=$(echo "$CONTENT" | grep -m1 "^Date:" | sed 's/Date: //')
-    SUBJECT=$(echo "$CONTENT" | grep -m1 "^Subject:" | sed 's/Subject: //')
+    # Return cached if valid (threads cached for 1 hour)
+    THREAD_TTL=3600
+    if [ -f "$CACHE" ]; then
+      age=$(( $(date +%s) - $(stat -f %m "$CACHE" 2>/dev/null || stat -c %Y "$CACHE" 2>/dev/null) ))
+      if [ "$age" -lt "$THREAD_TTL" ]; then
+        cat "$CACHE"
+        exit 0
+      fi
+    fi
     
-    # Get body (everything after the headers)
-    BODY=$(echo "$CONTENT" | sed -n '/^$/,$p' | tail -n +2)
-    
-    # Output markdown
-    echo "[← Back](/) | [Archive](#archive-${THREAD_ID}) | [Reply](#reply-${THREAD_ID})"
-    echo ""
-    echo "## ${SUBJECT}"
-    echo ""
-    echo "**From:** ${FROM}  "
-    echo "**To:** ${TO}  "
-    echo "**Date:** ${DATE}"
-    echo ""
-    echo "---"
-    echo ""
-    echo "$BODY"
+    # Fetch and cache
+    {
+      CONTENT=$(gmcli "$ACCOUNT" thread "$THREAD_ID" 2>/dev/null)
+      
+      FROM=$(echo "$CONTENT" | grep -m1 "^From:" | sed 's/From: //')
+      TO=$(echo "$CONTENT" | grep -m1 "^To:" | sed 's/To: //')
+      DATE=$(echo "$CONTENT" | grep -m1 "^Date:" | sed 's/Date: //')
+      SUBJECT=$(echo "$CONTENT" | grep -m1 "^Subject:" | sed 's/Subject: //')
+      BODY=$(echo "$CONTENT" | sed -n '/^$/,$p' | tail -n +2)
+      
+      echo "[← Back](/) | [Archive](#archive-${THREAD_ID}) | [Reply](#reply-${THREAD_ID})"
+      echo ""
+      echo "## ${SUBJECT}"
+      echo ""
+      echo "**From:** ${FROM}  "
+      echo "**To:** ${TO}  "
+      echo "**Date:** ${DATE}"
+      echo ""
+      echo "---"
+      echo ""
+      echo "$BODY"
+    } | tee "$CACHE"
     ;;
 
   archive)

@@ -80,9 +80,10 @@ export function executeCommand(command, tools = {}, cwd = process.cwd(), env = p
  */
 export async function executeWidgets(widgets, tools = {}, cwd = process.cwd(), env = process.env, cache = null, cacheTTLs = {}) {
   const results = {};
+  const uncachedWidgets = [];
   
+  // Check cache first for all widgets
   for (const [name, command] of Object.entries(widgets)) {
-    // Check cache first if available
     if (cache && cacheTTLs[name]) {
       const cached = cache.get(name, cacheTTLs[name]);
       if (cached !== null) {
@@ -90,19 +91,32 @@ export async function executeWidgets(widgets, tools = {}, cwd = process.cwd(), e
         continue;
       }
     }
-    
+    uncachedWidgets.push({ name, command });
+  }
+  
+  // Execute uncached widgets in parallel
+  const promises = uncachedWidgets.map(async ({ name, command }) => {
     try {
       const result = await executeCommand(command, tools, cwd, env);
       const output = result.success ? result.stdout : `Error: ${result.error}`;
-      results[name] = output;
       
       // Cache result if cache available
       if (cache && cacheTTLs[name]) {
         cache.set(name, output);
       }
+      
+      return { name, output };
     } catch (error) {
-      results[name] = `Error: ${error.message}`;
+      return { name, output: `Error: ${error.message}` };
     }
+  });
+  
+  // Wait for all parallel executions
+  const parallelResults = await Promise.all(promises);
+  
+  // Merge parallel results into results object
+  for (const { name, output } of parallelResults) {
+    results[name] = output;
   }
   
   return results;
