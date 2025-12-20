@@ -6,34 +6,13 @@ cache:
   email_count: 5m
 ---
 
-# 📧 Email
-
-A markdown file that's also an email client.
-
-| View in | Experience |
-|---------|------------|
-| GitHub | Documentation |
-| Typora | Editable doc |
-| mdos | Live app |
+# 📧 Inbox
 
 ---
 
 {% if view.size > 0 %}{{ thread }}{% else %}{{ inbox }}
 
 **{{ email_count }}** unread · [Refresh](#refresh){% endif %}
-
----
-
-## How it works
-
-The magic is in the **widget definitions** below - they look like markdown links but mdos executes them as commands:
-
-```
-[inbox]: !gmail inbox      ← Fetches your emails
-[#archive-*]: !gmail archive $1   ← Archives when clicked
-```
-
-These are valid markdown (reference-style links) so they're **invisible in GitHub** but **functional in mdos**.
 
 ---
 

@@ -8,7 +8,7 @@ marked.setOptions({
 import express from 'express';
 import { watch } from 'chokidar';
 import { resolve, dirname } from 'path';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { WebSocketServer } from 'ws';
 import { parseMarkdown, extractActions, extractActionLinks, renderTemplate, cleanBody } from './parser.js';
 import { loadState, saveState, mergeWidgetResults } from './state.js';
@@ -154,6 +154,118 @@ export async function startServer(mdPath, port = 3000, options = {}) {
   // Main page
   app.get('/', async (req, res) => {
     try {
+      // Edit mode - show split view editor with live preview
+      if (req.query.edit === 'true') {
+        const rawContent = readFileSync(resolve(mdPath), 'utf-8');
+        return res.send(`
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Edit - Markdown OS</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .preview-frame { border: none; }
+    .divider { cursor: col-resize; }
+    .divider:hover { background: #4B5563; }
+  </style>
+</head>
+<body class="bg-gray-900 min-h-screen overflow-hidden">
+  <div class="flex flex-col h-screen">
+    <div class="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
+      <div class="flex items-center gap-4">
+        <span class="text-gray-400 text-sm font-mono">${resolve(mdPath).split('/').pop()}</span>
+        <span id="status" class="text-xs text-gray-500"></span>
+      </div>
+      <div class="flex items-center gap-2">
+        <button onclick="save()" class="px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700">Save</button>
+        <button onclick="togglePreview()" id="previewBtn" class="px-3 py-1.5 bg-gray-700 text-gray-200 text-sm rounded hover:bg-gray-600">Hide Preview</button>
+        <a href="/" class="px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">View App</a>
+      </div>
+    </div>
+    <div class="flex flex-1 overflow-hidden">
+      <textarea id="editor" class="w-1/2 p-4 bg-gray-900 text-gray-100 font-mono text-sm resize-none focus:outline-none border-r border-gray-700" spellcheck="false">${rawContent.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
+      <div id="divider" class="divider w-1 bg-gray-700 hover:bg-gray-600"></div>
+      <iframe id="preview" src="/" class="preview-frame flex-1 bg-white"></iframe>
+    </div>
+  </div>
+  <script>
+    const editor = document.getElementById('editor');
+    const preview = document.getElementById('preview');
+    const status = document.getElementById('status');
+    const previewBtn = document.getElementById('previewBtn');
+    let modified = false;
+    let previewVisible = true;
+    let saveTimeout;
+    
+    editor.addEventListener('input', () => {
+      modified = true;
+      status.textContent = 'Modified';
+      status.className = 'text-xs text-yellow-500';
+      
+      // Auto-save after 1s of no typing
+      clearTimeout(saveTimeout);
+      saveTimeout = setTimeout(() => {
+        save(true);
+      }, 1000);
+    });
+    
+    function togglePreview() {
+      previewVisible = !previewVisible;
+      preview.style.display = previewVisible ? 'block' : 'none';
+      document.getElementById('divider').style.display = previewVisible ? 'block' : 'none';
+      editor.style.width = previewVisible ? '50%' : '100%';
+      previewBtn.textContent = previewVisible ? 'Hide Preview' : 'Show Preview';
+    }
+    
+    async function save(auto = false) {
+      status.textContent = auto ? 'Auto-saving...' : 'Saving...';
+      status.className = 'text-xs text-blue-400';
+      try {
+        const res = await fetch('/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: editor.value })
+        });
+        const data = await res.json();
+        if (data.success) {
+          status.textContent = 'Saved';
+          status.className = 'text-xs text-green-500';
+          modified = false;
+          // Refresh preview
+          preview.src = preview.src;
+        } else {
+          status.textContent = 'Error: ' + data.error;
+          status.className = 'text-xs text-red-500';
+        }
+      } catch (e) {
+        status.textContent = 'Error: ' + e.message;
+        status.className = 'text-xs text-red-500';
+      }
+    }
+    
+    // Cmd/Ctrl+S to save
+    document.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault();
+        save();
+      }
+    });
+    
+    // Warn before leaving with unsaved changes
+    window.addEventListener('beforeunload', (e) => {
+      if (modified) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    });
+  </script>
+</body>
+</html>
+        `);
+      }
+      
       const { html, actions, state, error } = await render(req.query);
       
       if (error) {
@@ -260,6 +372,11 @@ export async function startServer(mdPath, port = 3000, options = {}) {
   </div>
   
   <div id="status" class="fixed top-5 right-5 px-4 py-2 rounded shadow-lg text-white font-medium hidden"></div>
+  
+  <a href="?edit=true" class="fixed bottom-5 right-5 px-3 py-2 bg-gray-800 text-gray-200 text-sm rounded-lg shadow-lg hover:bg-gray-700 transition-colors" title="Edit markdown">
+    <svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+    Edit
+  </a>
   
   <script>
     const statusEl = document.getElementById('status');
@@ -389,6 +506,27 @@ export async function startServer(mdPath, port = 3000, options = {}) {
         success: false,
         error: error.message,
         stack: devMode ? error.stack : undefined
+      });
+    }
+  });
+  
+  // Save markdown file endpoint
+  app.post('/save', async (req, res) => {
+    const { content } = req.body;
+    
+    try {
+      writeFileSync(resolve(mdPath), content, 'utf-8');
+      
+      // Invalidate cache after save
+      if (cache) {
+        cache.invalidateAll();
+      }
+      
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error.message
       });
     }
   });
