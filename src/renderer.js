@@ -151,6 +151,90 @@ export async function startServer(mdPath, port = 3000, options = {}) {
     }
   }
   
+  // Edit rules file
+  app.get('/edit-rules', async (req, res) => {
+    const rulesPath = resolve(process.env.HOME, '.mdos/rules/email.md');
+    try {
+      const content = existsSync(rulesPath) ? readFileSync(rulesPath, 'utf-8') : '# Email Rules\n\n';
+      res.send(`
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Edit Rules</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'SF Mono', monospace; background: #1a1b26; color: #c0caf5; min-height: 100vh; }
+    .header { padding: 12px 16px; background: #24283b; border-bottom: 1px solid #414868; display: flex; justify-content: space-between; align-items: center; }
+    .header h1 { font-size: 14px; color: #7aa2f7; }
+    .header .actions { display: flex; gap: 8px; }
+    .header a, .header button { color: #7aa2f7; background: none; border: 1px solid #414868; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; text-decoration: none; }
+    .header button:hover, .header a:hover { background: #414868; }
+    .header button.primary { background: #7aa2f7; color: #1a1b26; border-color: #7aa2f7; }
+    textarea { width: 100%; height: calc(100vh - 50px); background: #1a1b26; color: #c0caf5; border: none; padding: 16px; font-family: inherit; font-size: 14px; line-height: 1.6; resize: none; outline: none; }
+    #status { font-size: 12px; color: #565f89; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Edit: ~/.mdos/rules/email.md</h1>
+    <span id="status"></span>
+    <div class="actions">
+      <a href="/">Back</a>
+      <button onclick="save()" class="primary">Save</button>
+    </div>
+  </div>
+  <textarea id="editor">${content.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
+  <script>
+    const editor = document.getElementById('editor');
+    const status = document.getElementById('status');
+    
+    async function save() {
+      status.textContent = 'Saving...';
+      try {
+        const res = await fetch('/save-rules', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: editor.value })
+        });
+        if (res.ok) {
+          status.textContent = 'Saved!';
+          setTimeout(() => status.textContent = '', 2000);
+        } else {
+          status.textContent = 'Error saving';
+        }
+      } catch (e) {
+        status.textContent = 'Error: ' + e.message;
+      }
+    }
+    
+    // Cmd/Ctrl+S to save
+    document.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault();
+        save();
+      }
+    });
+  </script>
+</body>
+</html>
+      `);
+    } catch (error) {
+      res.status(500).send('Error loading rules: ' + error.message);
+    }
+  });
+  
+  // Save rules file
+  app.post('/save-rules', express.json(), (req, res) => {
+    const rulesPath = resolve(process.env.HOME, '.mdos/rules/email.md');
+    try {
+      writeFileSync(rulesPath, req.body.content, 'utf-8');
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Main page
   app.get('/', async (req, res) => {
     try {

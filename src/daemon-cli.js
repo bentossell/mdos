@@ -150,31 +150,52 @@ async function handleDaemon(subcommand, args) {
 }
 
 async function handlePending(args) {
+  const formatMd = args.includes('--format') && args[args.indexOf('--format') + 1] === 'md';
   const { queued, completed } = pending.read();
   
-  console.log('\n# Pending Actions\n');
-  
-  console.log('## Queued\n');
-  if (queued.length === 0) {
-    console.log('  No pending actions\n');
+  if (formatMd) {
+    // Output HTML with checkboxes for web UI
+    if (queued.length === 0) {
+      console.log('_No pending actions_\n');
+    } else {
+      queued.forEach((action, i) => {
+        console.log(`<div class="item pending-item" data-id="${i}"><span class="checkbox" onclick="togglePending(${i})">[ ]</span> <span class="text">${action.text}</span></div>`);
+      });
+      console.log('\n<a href="#" onclick="approveSelected(); return false;">Approve Selected</a> | <a href="#" onclick="rejectSelected(); return false;">Reject Selected</a> | [Approve All](#approve-all)');
+    }
+    
+    if (completed.length > 0) {
+      console.log('\n**Completed today:**');
+      completed.slice(-5).forEach(action => {
+        console.log(`- [x] ${action.text}`);
+      });
+    }
   } else {
-    queued.forEach((action, i) => {
-      console.log(`  ${i}. [ ] ${action.text}`);
-      if (action.metadata && Object.keys(action.metadata).length > 0) {
-        console.log(`     ${JSON.stringify(action.metadata)}`);
-      }
-    });
-    console.log();
-  }
-  
-  console.log('## Completed today\n');
-  if (completed.length === 0) {
-    console.log('  Nothing completed yet\n');
-  } else {
-    completed.forEach(action => {
-      console.log(`  [x] ${action.text}`);
-    });
-    console.log();
+    // Standard CLI output
+    console.log('\n# Pending Actions\n');
+    
+    console.log('## Queued\n');
+    if (queued.length === 0) {
+      console.log('  No pending actions\n');
+    } else {
+      queued.forEach((action, i) => {
+        console.log(`  ${i}. [ ] ${action.text}`);
+        if (action.metadata && Object.keys(action.metadata).length > 0) {
+          console.log(`     ${JSON.stringify(action.metadata)}`);
+        }
+      });
+      console.log();
+    }
+    
+    console.log('## Completed today\n');
+    if (completed.length === 0) {
+      console.log('  Nothing completed yet\n');
+    } else {
+      completed.forEach(action => {
+        console.log(`  [x] ${action.text}`);
+      });
+      console.log();
+    }
   }
 }
 
