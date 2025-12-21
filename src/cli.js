@@ -3,16 +3,48 @@
 import { resolve } from 'path';
 import { existsSync } from 'fs';
 import { startServer } from './renderer.js';
+import { execSync } from 'child_process';
 
 const args = process.argv.slice(2);
 
+// Check if it's an agent command
+const agentCommands = ['daemon', 'pending', 'approve', 'reject', 'log', 'search', 'init'];
+if (agentCommands.includes(args[0])) {
+  // Delegate to daemon-cli
+  try {
+    execSync(`node ${resolve(import.meta.dirname, 'daemon-cli.js')} ${args.join(' ')}`, {
+      stdio: 'inherit'
+    });
+    process.exit(0);
+  } catch (error) {
+    process.exit(error.status || 1);
+  }
+}
+
 if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
   console.log(`
-Markdown OS - Declarative UIs from markdown with CLI tools
+Markdown OS - Agent-native operating system
 
 Usage:
-  mdos <file.md> [options]
-  mdos dev <file.md> [options]    Dev mode with hot reload
+  mdos <file.md> [options]           Serve workspace as web UI
+  mdos dev <file.md> [options]       Dev mode with hot reload
+  mdos init                          Initialize ~/.mdos structure
+  
+  mdos daemon start                  Start background agent
+  mdos daemon stop                   Stop background agent
+  mdos daemon status                 Show daemon status
+  mdos daemon run-once               Run daemon once (for cron)
+  
+  mdos pending                       Show pending actions
+  mdos approve <id>                  Approve specific action
+  mdos approve --all                 Approve all pending actions
+  mdos reject <id>                   Reject specific action
+  
+  mdos log                           Show recent context
+  mdos log --tool <name>             Filter by tool
+  mdos log --by <actor>              Filter by actor
+  mdos log --since <time>            Filter by time
+  mdos search <query>                Search context history
 
 Options:
   --port <number>      Port for web server (default: 3000)
@@ -21,9 +53,11 @@ Options:
 
 Examples:
   mdos dashboard.md
-  mdos dashboard.md --port 8080
   mdos dev email.md --config work-config.json
-  mdos dashboard.md --config personal-config.json
+  mdos daemon start
+  mdos pending
+  mdos approve --all
+  mdos log --tool gmail --since 1h
 
 The markdown file should have frontmatter with:
   tools:       Mapping of tool names to CLI paths
